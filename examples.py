@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import time
 from gmphd import *
-
+from gmphd_svsf import *
 
 def process_model_for_example_1():
     # This is the model for the example in "Bayesian Multiple Target Filtering Using Random Finite Sets" by Vo, Vo, Clark
@@ -36,6 +36,10 @@ def process_model_for_example_1():
     F[2:, 2:] = I_2
     model['F'] = F
 
+    model['G'] = [10.0, 10.0, 10.0, 10.0]
+    model['g'] = 0.1
+    model['u'] = 2
+    model['l'] = 2
     # Process noise covariance matrix
     Q = np.zeros((4, 4))
     Q[0:2, 0:2] = (T_s ** 4) / 4 * I_2
@@ -59,7 +63,9 @@ def process_model_for_example_1():
          np.array([-200., 800., 0., 0.])]
     P_pom_ = np.diag([100., 100., 100., 100.])
     P = [P_pom_.copy(), P_pom_.copy(), P_pom_.copy(), P_pom_.copy()]
-    model['birth_GM'] = GaussianMixture(w, m, P)
+    #e = [np.array([0., 0., 0., 0.]), np.array([0., 0., 0., 0.]), np.array([0., 0., 0., 0.]), np.array([0., 0., 0., 0.])]
+    e = [np.array([0., 0.]), np.array([0., 0.,]), np.array([0., 0.]), np.array([0., 0.])]
+    model['birth_GM'] = GaussianMixture(w, m, P, e)
 
     # MEASUREMENT MODEL
     # probability of detection
