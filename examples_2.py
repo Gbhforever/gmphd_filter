@@ -36,8 +36,8 @@ def process_model_for_example_1():
     F[2:, 2:] = I_2
     model['F'] = F
 
-    model['G'] = [200.0, 200.0, 200, 200]
-    model['g'] = 0
+    model['G'] = [10.0, 10.0, 10.0, 10.0]
+    model['g'] = 0.1
     model['u'] = 2
     model['l'] = 2
     # Process noise covariance matrix
@@ -79,7 +79,7 @@ def process_model_for_example_1():
     model['R'] = I_2 * (sigma_v ** 2)
 
     # the reference to clutter intensity function
-    model['lc'] = 10 #50
+    model['lc'] = 50 #50
     model['clutt_int_fun'] = lambda z: clutter_intensity_function(z, model['lc'], model['surveillance_region'])
 
     # pruning and merging parameters:
@@ -192,8 +192,8 @@ def example1(num_of_scans=100):
     targets_birth_time = (np.array(targets_birth_time) - 1).tolist()
 
     targets_death_time = [70, num_of_scans, 70, num_of_scans, num_of_scans, num_of_scans,
-                         num_of_scans, num_of_scans, num_of_scans, num_of_scans, num_of_scans,
-                         num_of_scans]
+                          num_of_scans, num_of_scans, num_of_scans, num_of_scans, num_of_scans,
+                          num_of_scans]
 
     targets_start = [np.array([0., 0., 0., -10.]),
                      np.array([400., -600., -10., 5.]),
@@ -348,8 +348,8 @@ if __name__ == '__main__':
     data = generate_measurements(model, trajectories)
 
     # Call of the gmphd filter for the created observations collections
-    #gmphd = GmphdFilter(model)
-    gmphd = GmphdFilter_svsf(model)
+    gmphd = GmphdFilter(model)
+    #gmphd = GmphdFilter_svsf(model)
 
     a = time.time()
     X_collection = gmphd.filter_data(data)

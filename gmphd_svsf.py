@@ -311,6 +311,7 @@ class GmphdFilter_svsf:
         w = (np.array(v_copy.w) * (1 - self.p_d)).tolist()
         m = v_copy.m
         P = v_copy.P
+        P_orig = v.copy().P
         e = v_copy.e
 
         for z in Z:
@@ -320,9 +321,11 @@ class GmphdFilter_svsf:
                 error = z - self.H @ v.m[i]
                 #sat = v.saturate(error,self.G,-1)
                 if(self.l != 0): #not full measurement matrix
-                    E_z = abs(error) + np.diagflat(np.full((self.u,1),self.g)) @ abs(v.e[i])
 
-                    k_u = lin.inv(self.H[:, 0:self.u]) @ np.diagflat(E_z * v.saturate(error,self.G,[0,self.u-1])) @ lin.inv(np.diagflat(error))
+                    H_1 = lin.inv(self.H[:, 0:self.u])
+
+                    E_z = abs(error) + np.diagflat(np.full((self.u,1),self.g)) @ abs(v.e[i])
+                    k_u = H_1 @ np.diagflat(E_z * v.saturate(error,self.G,[0,self.u-1])) @ lin.inv(np.diagflat(error))
                     phi = self.t @ self.F @ lin.inv(self.t)
                     [phi_x,phi_y] = np.shape(phi)
                     phi_22 = phi[int(phi_x/2):phi_x,int(phi_y/2):phi_y]
@@ -332,7 +335,9 @@ class GmphdFilter_svsf:
                     K = np.vstack((k_u,k_l))
                     x_po = v.m[i] + K @ error
                     P_k = self.F@v.P[i]@self.F.T + self.Q
-                    P_kpo = P_k - K@self.H@P_k - P_k@self.H.T@K.T + K@v_residual.P[i]@K.T
+
+                    S_k = H_1 @ P_k[0:int(np.shape(P_k)[0]/2),0:int(np.shape(P_k)[0]/2)] @ H_1.T + self.R
+                    P_kpo = P_k - K@self.H@P_k - P_k@self.H.T@K.T + K@S_k@K.T
                     e_kpo = z - self.H @ x_po
                     w.append(values[i] / normalization_factor)
                     m.append(x_po)
