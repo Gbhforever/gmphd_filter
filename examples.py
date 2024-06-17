@@ -69,7 +69,7 @@ def process_model_for_example_1():
 
     # MEASUREMENT MODEL
     # probability of detection
-    model['p_d'] = 1
+    model['p_d'] = 0.98
 
     # measurement matrix z = Hx + v = N(z; Hx, R)
     model['H'] = np.zeros((2, 4))
@@ -79,7 +79,7 @@ def process_model_for_example_1():
     model['R'] = I_2 * (sigma_v ** 2)
 
     # the reference to clutter intensity function
-    model['lc'] = 10 #50
+    model['lc'] = 50 #50
     model['clutt_int_fun'] = lambda z: clutter_intensity_function(z, model['lc'], model['surveillance_region'])
 
     # pruning and merging parameters:
@@ -331,7 +331,7 @@ if __name__ == '__main__':
     # For example 1, uncomment the following code.
     # =================================================Example 1========================================================
     model = process_model_for_example_1()
-    targets_birth_time, targets_death_time, targets_start = example3(model['num_scans'])
+    targets_birth_time, targets_death_time, targets_start = example1(model['num_scans'])
     trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,
                                                          noise=False)
     # ==================================================================================================================

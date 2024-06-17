@@ -334,10 +334,9 @@ class GmphdFilter_svsf:
                     k_l = np.diagflat(E_y) * v.saturate(phi_22@lin.inv(phi_12)@error,self.G,[self.u,np.shape(self.G)[0]]) @ lin.inv(np.diagflat(phi_22@lin.inv(phi_12)@error))@phi_22@lin.inv(phi_12)
                     K = np.vstack((k_u,k_l))
                     x_po = v.m[i] + K @ error
-                    P_k = self.F@v.P[i]@self.F.T + self.Q
 
-                    S_k = H_1 @ P_k[0:int(np.shape(P_k)[0]/2),0:int(np.shape(P_k)[0]/2)] @ H_1.T + self.R
-                    P_kpo = P_k - K@self.H@P_k - P_k@self.H.T@K.T + K@S_k@K.T
+                    S_k = H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ H_1.T + self.R
+                    P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
                     e_kpo = z - self.H @ x_po
                     w.append(values[i] / normalization_factor)
                     m.append(x_po)
