@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import time
 from gmphd import *
 from gmphd_svsf import *
-
+import math
 def process_model_for_example_1():
     # This is the model for the example in "Bayesian Multiple Target Filtering Using Random Finite Sets" by Vo, Vo, Clark
     # The implementation almost analog to Matlab code provided by Vo in http://ba-tuong.vo-au.com/codes.html
@@ -35,6 +35,15 @@ def process_model_for_example_1():
     F[0:2, 2:] = I_2 * T_s
     F[2:, 2:] = I_2
     model['F'] = F
+    # Constant Turn Model
+    w = 0.01*180/math.pi
+    F_1 = np.zeros((4, 4))
+    F_1[0, :] = [1, 0, math.sin(w * T_s) / w, -(1 - math.cos(w * T_s)) / w]
+    F_1[1, :] = [0, 1, (1 - math.cos(w * T_s)) / w, math.sin((w * T_s) / w)]
+    F_1[2, :] = [0, 0, math.cos(w * T_s), -math.sin(w * T_s)]
+    F_1[3, :] = [0, 0, math.sin(w * T_s), math.cos(w * T_s)]
+    model['F_1'] = F_1
+
 
     model['G'] = [10.0, 10.0, 10.0, 10.0]
     model['g'] = 0.1
@@ -79,7 +88,7 @@ def process_model_for_example_1():
     model['R'] = I_2 * (sigma_v ** 2)
 
     # the reference to clutter intensity function
-    model['lc'] = 50 #50
+    model['lc'] = 10 #50
     model['clutt_int_fun'] = lambda z: clutter_intensity_function(z, model['lc'], model['surveillance_region'])
 
     # pruning and merging parameters:
@@ -128,6 +137,15 @@ def process_model_for_example_2():
     F[0:2, 2:] = I_2 * T_s
     F[2:, 2:] = I_2
     model['F'] = F
+
+    # Constant Turn Model
+    w = 10
+    F_1 = np.zeros((4, 4))
+    F_1[0, :] = [1, 0, math.sin(w * T_s) / w, -(1 - math.cos(w * T_s)) / w]
+    F_1[1, :] = [0, 1, (1 - math.cos(w * T_s)) / w, math.sin((w * T_s) / w)]
+    F_1[2, :] = [0, 0, math.cos(w * T_s), -math.sin(w * T_s)]
+    F_1[3, :] = [0, 0, math.sin(w * T_s), math.cos(w * T_s)]
+    model['F_1'] = F_1
 
     # Process noise covariance matrix
     Q = np.zeros((4, 4))
@@ -228,13 +246,17 @@ def example2(num_of_scans=100):
 def example3(num_of_scans=100):
     targets_birth_time = [1]
     targets_birth_time = (np.array(targets_birth_time) - 1).tolist()
-    targets_death_time = [70]
-    targets_start = [np.array([0., 0., -10, -10.])]
-    return targets_birth_time, targets_death_time, targets_start
-def generate_trajectories(model, targets_birth_time, targets_death_time, targets_start, targets_spw_time_brttgt_vel=[],
+    targets_death_time = [100]
+    targets_start = [np.array([0., 0., -10, -10])]
+    target_model_time = [25,75]
+    return targets_birth_time, targets_death_time, targets_start, target_model_time
+def generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,target_model_time, targets_spw_time_brttgt_vel=[],
                           noise=False):
     num_of_scans = model['num_scans']
     trajectories = []
+    F_arr =[model['F'],model['F_1']]
+    idx=0
+    F = F_arr[idx]
     for i in range(num_of_scans):
         trajectories.append([])
     targets_tracks = {}
@@ -242,7 +264,10 @@ def generate_trajectories(model, targets_birth_time, targets_death_time, targets
         target_state = start
         targets_tracks[i] = []
         for k in range(targets_birth_time[i], min(targets_death_time[i], num_of_scans)):
-            target_state = model['F'] @ target_state
+            if k in target_model_time:
+                idx = (idx+1)%np.shape(F_arr)[0]
+                F = F_arr[idx]
+            target_state = F @ target_state
             if noise:
                 target_state += np.random.multivariate_normal(np.zeros(target_state.size), model['Q'])
             if target_state[0] < model['surveillance_region'][0][0] or target_state[0] > \
@@ -277,6 +302,7 @@ def generate_trajectories(model, targets_birth_time, targets_death_time, targets
             trajectories[k].append(target_state)
             targets_tracks[len(targets_birth_time) - 1].append(target_state)
     return trajectories, targets_tracks
+
 
 
 def generate_measurements(model, trajectories):
@@ -327,12 +353,12 @@ def extract_axis_for_plot(X_collection, delta):
 
 
 if __name__ == '__main__':
-
+    #np.seterr(all='raise')
     # For example 1, uncomment the following code.
     # =================================================Example 1========================================================
     model = process_model_for_example_1()
-    targets_birth_time, targets_death_time, targets_start = example1(model['num_scans'])
-    trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,
+    targets_birth_time, targets_death_time, targets_start, target_model_time = example3(model['num_scans'])
+    trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start, target_model_time,
                                                          noise=False)
     # ==================================================================================================================
 

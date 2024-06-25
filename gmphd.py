@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.linalg as lin
 from typing import List, Dict, Any
-
+import scipy.special
 
 def multivariate_gaussian(x: np.ndarray, m: np.ndarray, P: np.ndarray) -> float:
     """

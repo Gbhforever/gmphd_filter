@@ -2,6 +2,8 @@ import numpy as np
 import numpy.linalg as lin
 from typing import List, Dict, Any
 
+import scipy.special
+
 
 def multivariate_gaussian(x: np.ndarray, m: np.ndarray, P: np.ndarray) -> float:
     """
@@ -261,6 +263,14 @@ class GmphdFilter_svsf:
         self.t = np.eye(np.shape(self.F)[0])
         assert(self.u+self.l == np.shape(self.F)[0])
 
+        #SVSF precomputed Matrices
+        self.H_1 = lin.inv(self.H[:, 0:self.u])
+        phi = self.t @ self.F @ lin.inv(self.t)
+        [phi_x, phi_y] = np.shape(phi)
+        self.phi_22 = phi[int(phi_x / 2):phi_x, int(phi_y / 2):phi_y]
+        self.phi_12 = phi[0:int(phi_x / 2), int(phi_y / 2):phi_y]
+        self.phi_12_inv = lin.inv(self.phi_12)
+
 
     def spawn_mixture(self, v: GaussianMixture) -> GaussianMixture:
         """
@@ -322,20 +332,20 @@ class GmphdFilter_svsf:
                 #sat = v.saturate(error,self.G,-1)
                 if(self.l != 0): #not full measurement matrix
 
-                    H_1 = lin.inv(self.H[:, 0:self.u])
+                    #H_1 = lin.inv(self.H[:, 0:self.u])
 
                     E_z = abs(error) + np.diagflat(np.full((self.u,1),self.g)) @ abs(v.e[i])
-                    k_u = H_1 @ np.diagflat(E_z * v.saturate(error,self.G,[0,self.u-1])) @ lin.inv(np.diagflat(error))
-                    phi = self.t @ self.F @ lin.inv(self.t)
-                    [phi_x,phi_y] = np.shape(phi)
-                    phi_22 = phi[int(phi_x/2):phi_x,int(phi_y/2):phi_y]
-                    phi_12 = phi[0:int(phi_x/2),int(phi_y/2):phi_y]
-                    E_y = abs(phi_22 @ lin.inv(phi_12) @ error) + np.diagflat(np.full((self.l,1),self.g)) @ abs(lin.inv(phi_12)@error)
-                    k_l = np.diagflat(E_y) * v.saturate(phi_22@lin.inv(phi_12)@error,self.G,[self.u,np.shape(self.G)[0]]) @ lin.inv(np.diagflat(phi_22@lin.inv(phi_12)@error))@phi_22@lin.inv(phi_12)
+                    k_u = self.H_1 @ np.diagflat(E_z * v.saturate(error,self.G,[0,self.u-1])) @ lin.inv(np.diagflat(error))
+                    #phi = self.t @ self.F @ lin.inv(self.t)
+                    #[phi_x,phi_y] = np.shape(phi)
+                    #phi_22 = phi[int(phi_x/2):phi_x,int(phi_y/2):phi_y]
+                    #phi_12 = phi[0:int(phi_x/2),int(phi_y/2):phi_y]
+                    E_y = abs(self.phi_22 @ lin.inv(self.phi_12) @ error) + np.diagflat(np.full((self.l,1),self.g)) @ abs(self.phi_12_inv@error)
+                    k_l = np.diagflat(E_y) * v.saturate(self.phi_22@self.phi_12_inv@error,self.G,[self.u,np.shape(self.G)[0]]) @ lin.inv(np.diagflat(self.phi_22@self.phi_12_inv@error))@self.phi_22@self.phi_12_inv
                     K = np.vstack((k_u,k_l))
                     x_po = v.m[i] + K @ error
 
-                    S_k = H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ H_1.T + self.R
+                    S_k = self.H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ self.H_1.T + self.R
                     P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
                     e_kpo = z - self.H @ x_po
                     w.append(values[i] / normalization_factor)

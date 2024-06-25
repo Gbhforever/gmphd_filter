@@ -1,3 +1,5 @@
+import math
+
 import matplotlib.pyplot as plt
 import time
 from gmphd import *
@@ -35,6 +37,15 @@ def process_model_for_example_1():
     F[0:2, 2:] = I_2 * T_s
     F[2:, 2:] = I_2
     model['F'] = F
+    #Constant Turn Model
+    w = math.radians(3)
+    F_1 = np.zeros((4, 4))
+    F_1[0, :] = [1, 0, math.sin(w * T_s) / w, -(1 - math.cos(w * T_s)) / w]
+    F_1[1, :] = [0, 1, (1 - math.cos(w * T_s)) / w, math.sin((w * T_s) / w)]
+    F_1[2, :] = [0, 0, math.cos(w * T_s), -math.sin(w * T_s)]
+    F_1[3, :] = [0, 0, math.sin(w * T_s), math.cos(w * T_s)]
+    #model['F_library'] = [F]
+    model['F_library'] = [F,F_1]
 
     model['G'] = [200.0, 200.0, 200, 200]
     model['g'] = 0
@@ -47,7 +58,7 @@ def process_model_for_example_1():
     Q[2:, 0:2] = (T_s ** 3) / 2 * I_2
     Q[2:, 2:] = (T_s ** 2) * I_2
     # standard deviation of the process noise
-    sigma_w = 5.
+    sigma_w = 0.01
     Q = Q * (sigma_w ** 2)
     model['Q'] = Q
 
@@ -79,7 +90,7 @@ def process_model_for_example_1():
     model['R'] = I_2 * (sigma_v ** 2)
 
     # the reference to clutter intensity function
-    model['lc'] = 50 #50
+    model['lc'] = 100 #50
     model['clutt_int_fun'] = lambda z: clutter_intensity_function(z, model['lc'], model['surveillance_region'])
 
     # pruning and merging parameters:
@@ -194,6 +205,8 @@ def example1(num_of_scans=100):
     targets_death_time = [70, num_of_scans, 70, num_of_scans, num_of_scans, num_of_scans,
                          num_of_scans, num_of_scans, num_of_scans, num_of_scans, num_of_scans,
                          num_of_scans]
+    target_model_time = [0,0,0,0,0,0,0,0,0,0,0,0]
+
 
     targets_start = [np.array([0., 0., 0., -10.]),
                      np.array([400., -600., -10., 5.]),
@@ -211,7 +224,7 @@ def example1(num_of_scans=100):
 
                      np.array([0., 0., -20., -15.]),
                      np.array([-200., 800., 15., -5.])]
-    return targets_birth_time, targets_death_time, targets_start
+    return targets_birth_time, targets_death_time, targets_start, target_model_time
 
 
 def example2(num_of_scans=100):
@@ -228,13 +241,17 @@ def example2(num_of_scans=100):
 def example3(num_of_scans=100):
     targets_birth_time = [1]
     targets_birth_time = (np.array(targets_birth_time) - 1).tolist()
-    targets_death_time = [70]
+    targets_death_time = [100]
     targets_start = [np.array([0., 0., -10, -10.])]
-    return targets_birth_time, targets_death_time, targets_start
-def generate_trajectories(model, targets_birth_time, targets_death_time, targets_start, targets_spw_time_brttgt_vel=[],
+    target_model_time = [25,75]
+    return targets_birth_time, targets_death_time, targets_start, target_model_time
+def generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,target_model_time, targets_spw_time_brttgt_vel=[],
                           noise=False):
     num_of_scans = model['num_scans']
     trajectories = []
+    F_arr =model['F_library']
+    idx=0
+    F = F_arr[idx]
     for i in range(num_of_scans):
         trajectories.append([])
     targets_tracks = {}
@@ -242,7 +259,10 @@ def generate_trajectories(model, targets_birth_time, targets_death_time, targets
         target_state = start
         targets_tracks[i] = []
         for k in range(targets_birth_time[i], min(targets_death_time[i], num_of_scans)):
-            target_state = model['F'] @ target_state
+            if k in target_model_time:
+                idx = (idx+1)%np.shape(F_arr)[0]
+                F = F_arr[idx]
+            target_state = F @ target_state
             if noise:
                 target_state += np.random.multivariate_normal(np.zeros(target_state.size), model['Q'])
             if target_state[0] < model['surveillance_region'][0][0] or target_state[0] > \
@@ -324,15 +344,25 @@ def extract_axis_for_plot(X_collection, delta):
             time.append(k)
         k += delta
     return time, x, y
+def calculate_MSE(X_collection, target_tracks):
+    #Calculates MSE at timestep K
+    MSE=[]
+    for track in target_tracks:
+        error =[]
+        for X in X_collection:
+            error.append((track-X)**2)
+        error = error.min()
+
+
+    return MSE
 
 
 if __name__ == '__main__':
-
     # For example 1, uncomment the following code.
     # =================================================Example 1========================================================
     model = process_model_for_example_1()
-    targets_birth_time, targets_death_time, targets_start = example1(model['num_scans'])
-    trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,
+    targets_birth_time, targets_death_time, targets_start, target_model_time = example1(model['num_scans'])
+    trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start, target_model_time,
                                                          noise=False)
     # ==================================================================================================================
 
@@ -348,8 +378,8 @@ if __name__ == '__main__':
     data = generate_measurements(model, trajectories)
 
     # Call of the gmphd filter for the created observations collections
-    #gmphd = GmphdFilter(model)
-    gmphd = GmphdFilter_svsf(model)
+    gmphd = GmphdFilter(model)
+    #gmphd = GmphdFilter_svsf(model)
 
     a = time.time()
     X_collection = gmphd.filter_data(data)
@@ -415,3 +445,72 @@ if __name__ == '__main__':
     plt.legend()
     plt.title('Estimated cardinality VS actual cardinality', loc='center', wrap=True)
     plt.show()
+
+    #gmphd = GmphdFilter(model)
+    #gmphd = GmphdFilter_svsf(model)
+    """"
+    a = time.time()
+    X_collection = gmphd.filter_data(data)
+    print('svsf_Filtration time: ' + str(time.time() - a) + ' sec')
+
+    # Plot the results of filtration saved in X_collection file
+    tracks_plot = true_trajectory_tracks_plots(targets_birth_time, targets_tracks, model['T_s'])
+    plt.figure()
+    for key in tracks_plot:
+        t, x, y = tracks_plot[key]
+        plt.plot(x[0], y[0], 'o', c='k', mfc='none')
+        plt.plot(x[-1], y[-1], 's', c='k', mfc='none')
+        plt.plot(x, y)
+    plt.axis(model['surveillance_region'].flatten())
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title(r" svsf Targets movement in surveilance region. Circle represents the starting point and"
+              r" square represents the end point.", loc='center', wrap=True)
+
+    # Plot measurements, true trajectories and estimations
+    meas_time, meas_x, meas_y = extract_axis_for_plot(data, model['T_s'])
+    estim_time, estim_x, estim_y = extract_axis_for_plot(X_collection, model['T_s'])
+    plt.figure()
+    plt.plot(meas_time, meas_x, 'x', c='C0')
+    for key in tracks_plot:
+        t, x, y = tracks_plot[key]
+        plt.plot(t, x, 'r')
+    plt.plot(estim_time, estim_x, 'o', c='k', markersize=3)
+    plt.xlabel('time[$sec$]')
+    plt.ylabel('x')
+    plt.title('svsf X axis in time. Blue x are measurements(50 in each time step), '
+              'black dots are estimations and the red lines are actual trajectories of targets', loc='center',
+              wrap=True)
+
+    plt.figure()
+    plt.plot(meas_time, meas_y, 'x', c='C0')
+    for key in tracks_plot:
+        t, x, y = tracks_plot[key]
+        plt.plot(t, y, 'r')
+    plt.plot(estim_time, estim_y, 'o', c='k', markersize=3)
+    plt.xlabel('time[$sec$]')
+    plt.ylabel('y')
+    plt.title('svsf Y axis in time. Blue x are measurements(50 in each time step), '
+              'black dots are estimations and the red lines are actual trajectories of targets', loc='center',
+              wrap=True)
+
+    num_targets_truth = []
+    num_targets_estimated = []
+
+    for x_set in trajectories:
+        num_targets_truth.append(len(x_set))
+    for x_set in X_collection:
+        num_targets_estimated.append(len(x_set))
+
+    plt.figure()
+    (markerline, stemlines, baseline) = plt.stem(num_targets_estimated, label='estimated number of targets')
+    plt.setp(baseline, color='k')  # visible=False)
+    plt.setp(stemlines, visible=False)  # visible=False)
+    plt.setp(markerline, markersize=3.0)
+    plt.step(num_targets_truth, 'r', label='actual number of targets')
+    plt.xlabel('time[$sec$]')
+    plt.legend()
+    plt.title('svsf Estimated cardinality VS actual cardinality', loc='center', wrap=True)
+    plt.show()
+    """
