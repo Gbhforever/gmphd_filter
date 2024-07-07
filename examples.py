@@ -2,6 +2,9 @@ import math
 
 import matplotlib.pyplot as plt
 import time
+
+import numpy as np
+
 from gmphd import *
 from gmphd_svsf import *
 
@@ -19,10 +22,10 @@ def process_model_for_example_1():
     model['num_scans'] = 100
 
     # Surveillance region
-    x_min = -1000
-    x_max = 1000
-    y_min = -1000
-    y_max = 1000
+    x_min = -1500
+    x_max = 1500
+    y_min = -1500
+    y_max = 1500
     model['surveillance_region'] = np.array([[x_min, x_max], [y_min, y_max]])
 
     # TRANSITION MODEL
@@ -243,7 +246,7 @@ def example3(num_of_scans=100):
     targets_birth_time = (np.array(targets_birth_time) - 1).tolist()
     targets_death_time = [100]
     targets_start = [np.array([0., 0., -10, -10.])]
-    target_model_time = [25,75]
+    target_model_time = [50]
     return targets_birth_time, targets_death_time, targets_start, target_model_time
 def generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,target_model_time, targets_spw_time_brttgt_vel=[],
                           noise=False):
@@ -344,15 +347,26 @@ def extract_axis_for_plot(X_collection, delta):
             time.append(k)
         k += delta
     return time, x, y
-def calculate_MSE(X_collection, target_tracks):
+def calculate_MSE(X_collection, Trajectories,num_scans):
     #Calculates MSE at timestep K
-    MSE=[]
-    for track in target_tracks:
-        error =[]
-        for X in X_collection:
-            error.append((track-X)**2)
-        error = error.min()
-
+    traj = Trajectories.copy()
+    MSE=np.zeros((num_scans,4))
+    i=0
+    while i < num_scans:
+        for x in X_collection[i]:
+            error_arr=[]
+            for track in traj[i]:
+                error_arr.append((x-track)**2)
+            tmp = np.asarray(error_arr)
+            tmp = np.sum(tmp,axis=1)
+            idx = np.argmin(tmp)
+            error = error_arr[idx]
+            traj[i] = np.delete(traj[i],idx)
+            MSE[i] += error
+        if(len(X_collection[i])!=0):
+            MSE[i] = MSE[i]/len(X_collection[i])
+        MSE[i] = np.sqrt(MSE[i])
+        i = i+1
 
     return MSE
 
@@ -361,7 +375,7 @@ if __name__ == '__main__':
     # For example 1, uncomment the following code.
     # =================================================Example 1========================================================
     model = process_model_for_example_1()
-    targets_birth_time, targets_death_time, targets_start, target_model_time = example1(model['num_scans'])
+    targets_birth_time, targets_death_time, targets_start, target_model_time = example3(model['num_scans'])
     trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start, target_model_time,
                                                          noise=False)
     # ==================================================================================================================
@@ -373,19 +387,33 @@ if __name__ == '__main__':
     # trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,
     #                                                      targets_spw_time_brttgt_vel, noise=False)
     # ==================================================================================================================
-
+    Monte_carlo=1
+    MSE = np.zeros((model["num_scans"],4))
+    np.random.seed(0)
+    for i in range(Monte_carlo):
     # Collections of observations for each time step
-    data = generate_measurements(model, trajectories)
+        data = generate_measurements(model, trajectories)
 
     # Call of the gmphd filter for the created observations collections
-    gmphd = GmphdFilter(model)
-    #gmphd = GmphdFilter_svsf(model)
+        gmphd = GmphdFilter(model)
+        #gmphd = GmphdFilter_svsf(model)
 
-    a = time.time()
-    X_collection = gmphd.filter_data(data)
-    print('Filtration time: ' + str(time.time() - a) + ' sec')
+        a = time.time()
+        X_collection = gmphd.filter_data(data)
+        print('Filtration time: ' + str(time.time() - a) + ' sec')
 
     # Plot the results of filtration saved in X_collection file
+        MSE = MSE + calculate_MSE(X_collection,trajectories,model["num_scans"])
+    MSE = np.sqrt(MSE/Monte_carlo)
+    MSE = MSE[~np.all(MSE==0,axis=1)]
+    #MSE = np.delete(MSE,0,axis=0)
+    x = np.linspace(0,len(MSE),len(MSE))
+    plt.plot(x,MSE[:,0],c='r')
+    plt.plot(x, MSE[:, 1],c='g')
+    plt.plot(x, MSE[:, 2],c='b')
+    plt.plot(x, MSE[:, 3],c='k')
+    plt.show()
+    # region Plot functions
     tracks_plot = true_trajectory_tracks_plots(targets_birth_time, targets_tracks, model['T_s'])
     plt.figure()
     for key in tracks_plot:
@@ -445,72 +473,5 @@ if __name__ == '__main__':
     plt.legend()
     plt.title('Estimated cardinality VS actual cardinality', loc='center', wrap=True)
     plt.show()
+    # endregion
 
-    #gmphd = GmphdFilter(model)
-    #gmphd = GmphdFilter_svsf(model)
-    """"
-    a = time.time()
-    X_collection = gmphd.filter_data(data)
-    print('svsf_Filtration time: ' + str(time.time() - a) + ' sec')
-
-    # Plot the results of filtration saved in X_collection file
-    tracks_plot = true_trajectory_tracks_plots(targets_birth_time, targets_tracks, model['T_s'])
-    plt.figure()
-    for key in tracks_plot:
-        t, x, y = tracks_plot[key]
-        plt.plot(x[0], y[0], 'o', c='k', mfc='none')
-        plt.plot(x[-1], y[-1], 's', c='k', mfc='none')
-        plt.plot(x, y)
-    plt.axis(model['surveillance_region'].flatten())
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.title(r" svsf Targets movement in surveilance region. Circle represents the starting point and"
-              r" square represents the end point.", loc='center', wrap=True)
-
-    # Plot measurements, true trajectories and estimations
-    meas_time, meas_x, meas_y = extract_axis_for_plot(data, model['T_s'])
-    estim_time, estim_x, estim_y = extract_axis_for_plot(X_collection, model['T_s'])
-    plt.figure()
-    plt.plot(meas_time, meas_x, 'x', c='C0')
-    for key in tracks_plot:
-        t, x, y = tracks_plot[key]
-        plt.plot(t, x, 'r')
-    plt.plot(estim_time, estim_x, 'o', c='k', markersize=3)
-    plt.xlabel('time[$sec$]')
-    plt.ylabel('x')
-    plt.title('svsf X axis in time. Blue x are measurements(50 in each time step), '
-              'black dots are estimations and the red lines are actual trajectories of targets', loc='center',
-              wrap=True)
-
-    plt.figure()
-    plt.plot(meas_time, meas_y, 'x', c='C0')
-    for key in tracks_plot:
-        t, x, y = tracks_plot[key]
-        plt.plot(t, y, 'r')
-    plt.plot(estim_time, estim_y, 'o', c='k', markersize=3)
-    plt.xlabel('time[$sec$]')
-    plt.ylabel('y')
-    plt.title('svsf Y axis in time. Blue x are measurements(50 in each time step), '
-              'black dots are estimations and the red lines are actual trajectories of targets', loc='center',
-              wrap=True)
-
-    num_targets_truth = []
-    num_targets_estimated = []
-
-    for x_set in trajectories:
-        num_targets_truth.append(len(x_set))
-    for x_set in X_collection:
-        num_targets_estimated.append(len(x_set))
-
-    plt.figure()
-    (markerline, stemlines, baseline) = plt.stem(num_targets_estimated, label='estimated number of targets')
-    plt.setp(baseline, color='k')  # visible=False)
-    plt.setp(stemlines, visible=False)  # visible=False)
-    plt.setp(markerline, markersize=3.0)
-    plt.step(num_targets_truth, 'r', label='actual number of targets')
-    plt.xlabel('time[$sec$]')
-    plt.legend()
-    plt.title('svsf Estimated cardinality VS actual cardinality', loc='center', wrap=True)
-    plt.show()
-    """
