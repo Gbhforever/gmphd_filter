@@ -99,7 +99,7 @@ def process_model_for_example_1():
     # pruning and merging parameters:
     model['T'] = 1e-5
     model['U'] = 4.
-    model['Jmax'] = 100
+    model['Jmax'] = 20
 
     return model
 
@@ -186,7 +186,7 @@ def process_model_for_example_2():
     # pruning and merging parameters:
     model['T'] = 1e-5
     model['U'] = 4.
-    model['Jmax'] = 100
+    model['Jmax'] = 10
 
     return model
 
@@ -361,7 +361,7 @@ def calculate_MSE(X_collection, Trajectories,num_scans):
             tmp = np.sum(tmp,axis=1)
             idx = np.argmin(tmp)
             error = error_arr[idx]
-            traj[i] = np.delete(traj[i],idx)
+            #traj[i] = np.delete(traj[i],idx)
             MSE[i] += error
         if(len(X_collection[i])!=0):
             MSE[i] = MSE[i]/len(X_collection[i])
@@ -387,7 +387,7 @@ if __name__ == '__main__':
     # trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,
     #                                                      targets_spw_time_brttgt_vel, noise=False)
     # ==================================================================================================================
-    Monte_carlo=1
+    Monte_carlo=10
     MSE = np.zeros((model["num_scans"],4))
     np.random.seed(0)
     for i in range(Monte_carlo):
