@@ -329,7 +329,7 @@ class GmphdFilter_svsf:
             normalization_factor = np.sum(values) + self.clutter_density_func(z)
             for i in range(len(v_residual.w)):
                 error = z - self.H @ v.m[i]
-                #sat = v.saturate(error,self.G,-1)
+                #sat = v.saturate(error,self.G,[0,self.u-1])
                 if(self.l != 0): #not full measurement matrix
 
                     #H_1 = lin.inv(self.H[:, 0:self.u])
