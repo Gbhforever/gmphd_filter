@@ -8,6 +8,7 @@ import sympy
 
 from gmphd import *
 from gmphd_EKF import *
+from gmphd_UKF import *
 from gmphd_svsf import *
 
 from sympy import Matrix , sin, cos
@@ -592,7 +593,8 @@ if __name__ == '__main__':
     # Call of the gmphd filter for the created observations collections
         #gmphd = GmphdFilter(model)
         #gmphd = GmphdFilter_svsf(model)
-        gmphd = GmphdFilter_EKF(model_nonlinear)
+        gmphd = GmphdFilter_UKF(model_nonlinear)
+        #gmphd = GmphdFilter_EKF(model_nonlinear)
 
         a = time.time()
         X_collection = gmphd.filter_data(data)
