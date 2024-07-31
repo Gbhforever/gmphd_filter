@@ -193,7 +193,17 @@ def linear_update(v: GaussianMixture, p, F: np.ndarray, Q: np.ndarray):
     return GaussianMixture(w, m, P)
 def unscented_transform(u:GaussianMixture,Q:np.ndarray,R:np.ndarray):
     sigma_points=[]
+    W_m = []
+    W_c =[]
+    a = 1
+    B = 2
+    k = 0.1
+
     if not (len(u.w)==0):
+        L_s = np.shape(u.m[0])[0]
+        #L_s=12
+        lamb = a**2 *(L_s+k)-L_s
+
         D = np.shape(u.m)[1]
         P_size = np.shape(u.P[0])[0]
         Q_size = np.shape(Q)[0]
@@ -213,15 +223,32 @@ def unscented_transform(u:GaussianMixture,Q:np.ndarray,R:np.ndarray):
             L = np.linalg.cholesky(C)
             m = np.hstack((u.m[i],np.zeros((1,D_total-m_size))[0])).transpose()
             u_s = []
-
+            u_s.append(m)
+            w_m =[]
+            w_c= []
+            w_m_0 = lamb/(L_s+lamb)
+            w_c_0 = (lamb/(L_s+lamb)) + (1-a**2+B)
+            w_m.append(w_m_0)
+            w_c.append(w_c_0)
             for j in range(D):
                 x = m + L[:,j]
+                w = 1/(2*(L_s+lamb))
+                w_m.append(w)
+                w_c.append(w)
                 u_s.append(x)
             for j in range(D):
                 x = m - L[:,D+j]
+                w = 1 / (2 * (L_s + lamb))
+                w_m.append(w)
+                w_c.append(w)
                 u_s.append(x)
             sigma_points.append(u_s)
-    return sigma_points
+            W_m.append(w_m)
+            W_c.append(w_c)
+        # for component in sigma_points:
+        #     for point in component:
+        #
+    return sigma_points,W_m,W_c
 
 
 class GmphdFilter_UKF:
@@ -348,6 +375,45 @@ class GmphdFilter_UKF:
                 P.append(P_kk[i].copy())
 
         return GaussianMixture(w, m, P)
+    def unscented_predict_update(self, v: GaussianMixture, Z: List[np.ndarray]) -> GaussianMixture:
+        x, y, xd, yd, w = sympy.symbols("x,y,xd,yd,w")
+        birth_copy = self.birth_GM.copy()
+        sigma_points,W_m,W_c = unscented_transform(v,self.Q,self.R)
+        for i,target in enumerate(sigma_points):
+            x_l=[]
+            z_l=[]
+            for points in target:
+                X = points[0:5]
+                V = points[5:10]
+                E = points[10:12]
+                x_pred = self.F.subs([(x, X[0]), (y, X[1]), (xd, X[2]), (yd, X[3]), (w, X[4])])
+                z_pred = self.H @ x_pred
+                x_l.append(x_pred)
+                z_l.append(z_pred)
+            m_kpr = np.zeros(np.shape(x_l[0])[0])
+            z_kpr =np.zeros(np.shape(z_l[0])[0])
+            for j in range(len(x_l)):
+                m_kpr = m_kpr + W_m[i][j] * np.hstack(sympy.matrix2numpy(x_l[j])).transpose()
+                z_kpr = z_kpr + W_m[i][j] * np.hstack(sympy.matrix2numpy(z_l[j])).transpose()
+            P_kpr = np.zeros((np.shape(x_l[0])[0],np.shape(x_l[0])[0]))
+            S_kpr = np.zeros((np.shape(z_l[0])[0],np.shape(z_l[0])[0]))
+            G_k = np.zeros((np.shape(x_l[0])[0], np.shape(z_l[0])[0]))
+            for j in range(len(x_l)):
+                P_kpr = P_kpr + W_c[i][j] * (np.hstack(sympy.matrix2numpy(x_l[j]))-m_kpr) * (
+                        np.hstack(sympy.matrix2numpy(x_l[j]))-m_kpr).transpose()
+                S_kpr = S_kpr + W_c[i][j] * (np.hstack(sympy.matrix2numpy(z_l[j])) - z_kpr) * (
+                            np.hstack(sympy.matrix2numpy(z_l[j])) - z_kpr).transpose()
+                G_k = G_k + W_c[i][j] * np.outer((np.hstack(sympy.matrix2numpy(x_l[j])) - m_kpr),(
+                        np.hstack(sympy.matrix2numpy(z_l[j])) - z_kpr).transpose())
+
+
+        return
+
+
+
+
+
+
 
     def pruning(self, v: GaussianMixture) -> GaussianMixture:
         """
@@ -415,6 +481,8 @@ class GmphdFilter_UKF:
         for z in Z:
             v = self.prediction(v)
             v = self.correction(v, z)
+            if not (len(X)==0):
+                v = self.unscented_predict_update(v, z)
             v = self.pruning(v)
             x = self.state_estimation(v)
             X.append(x)
