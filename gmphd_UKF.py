@@ -395,6 +395,7 @@ class GmphdFilter_UKF:
             for j in range(len(x_l)):
                 m_kpr = m_kpr + W_m[i][j] * np.hstack(sympy.matrix2numpy(x_l[j])).transpose()
                 z_kpr = z_kpr + W_m[i][j] * np.hstack(sympy.matrix2numpy(z_l[j])).transpose()
+
             P_kpr = np.zeros((np.shape(x_l[0])[0],np.shape(x_l[0])[0]))
             S_kpr = np.zeros((np.shape(z_l[0])[0],np.shape(z_l[0])[0]))
             G_k = np.zeros((np.shape(x_l[0])[0], np.shape(z_l[0])[0]))
@@ -405,6 +406,8 @@ class GmphdFilter_UKF:
                             np.hstack(sympy.matrix2numpy(z_l[j])) - z_kpr).transpose()
                 G_k = G_k + W_c[i][j] * np.outer((np.hstack(sympy.matrix2numpy(x_l[j])) - m_kpr),(
                         np.hstack(sympy.matrix2numpy(z_l[j])) - z_kpr).transpose())
+
+            K_k = np.zeros((np.shape))
 
 
         return
