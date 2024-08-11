@@ -379,6 +379,8 @@ class GmphdFilter_UKF:
         x, y, xd, yd, w = sympy.symbols("x,y,xd,yd,w")
         birth_copy = self.birth_GM.copy()
         sigma_points,W_m,W_c = unscented_transform(v,self.Q,self.R)
+        K=[]
+        P_kk=[]
         for i,target in enumerate(sigma_points):
             x_l=[]
             z_l=[]
@@ -407,7 +409,25 @@ class GmphdFilter_UKF:
                 G_k = G_k + W_c[i][j] * np.outer((np.hstack(sympy.matrix2numpy(x_l[j])) - m_kpr),(
                         np.hstack(sympy.matrix2numpy(z_l[j])) - z_kpr).transpose())
 
-            K_k = np.zeros((np.shape))
+            K.append(G_k * np.linalg.inv(S_kpr))
+            P_kk.append(P_kpr - G_k * np.linalg.inv(S_kpr) * G_k.transpose())
+
+        v_copy = v.copy()
+        w = (np.array(v_copy.w) * (1 - self.p_d)).tolist()
+        m = v_copy.m
+        P = v_copy.P
+
+        for z in Z:
+            values = v_residual.mixture_component_values_list(z)
+            normalization_factor = np.sum(values) + self.clutter_density_func(z)
+            for i in range(len(v_residual.w)):
+                w.append(values[i] / normalization_factor)
+                m.append(v.m[i] + K[i] @ (z - v_residual.m[i]))
+                P.append(P_kk[i].copy())
+
+        return GaussianMixture(w, m, P)
+
+
 
 
         return
