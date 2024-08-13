@@ -201,7 +201,7 @@ def process_model_for_example_1_Nonlinear():
     model['R'] = I_2 * (sigma_v ** 2)
 
     # the reference to clutter intensity function
-    model['lc'] = 10 #50
+    model['lc'] = 0 #50
     model['clutt_int_fun'] = lambda z: clutter_intensity_function(z, model['lc'], model['surveillance_region'])
 
     # pruning and merging parameters:
