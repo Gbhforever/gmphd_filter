@@ -137,7 +137,7 @@ class GaussianMixture:
 def get_matrices_inverses(P_list: List[np.ndarray]) -> List[np.ndarray]:
     inverse_P_list = []
     for P in P_list:
-        inverse_P_list.append(lin.inv(P.astype(float)))
+        inverse_P_list.append(lin.pinv(P.astype(float)))
     return inverse_P_list
 
 
@@ -199,9 +199,9 @@ def unscented_transform(u:GaussianMixture,Q:np.ndarray,R:np.ndarray):
     B = 2
     k = 0.1
     if not (len(u.w)==0):
-        L_s = np.shape(u.m[0])[0]
+        #L_s = np.shape(u.m[0])[0]
         #L_s=12
-        lamb = a**2 *(L_s+k)-L_s
+        #lamb = a**2 *(L_s+k)-L_s
 
         D = np.shape(u.m)[1]
         P_size = np.shape(u.P[0])[0]
@@ -214,12 +214,16 @@ def unscented_transform(u:GaussianMixture,Q:np.ndarray,R:np.ndarray):
         Q_z_2 = np.zeros((R_size,Q_size))
         R_z = np.zeros((D_total-R_size,R_size))
 
+        L_s = D_total
+        lamb = a ** 2 * (L_s + k) - L_s
+
         for i in range(len(u.w)):
             P_l = np.vstack((u.P[i],P_z))
             Q_l = np.vstack((Q_z_1,Q,Q_z_2))
             R_l = np.vstack((R_z,R))
             C = np.hstack((P_l,Q_l,R_l))
-            L = np.linalg.cholesky(C)
+            #L = np.linalg.cholesky(D_total*C)
+            L = np.linalg.cholesky((lamb+D_total)* C)
             #L = np.linalg.cholesky((L_s+lamb)*u.P[i])
             m = np.hstack((u.m[i],np.zeros((1,D_total-m_size))[0])).transpose()
             u_s = []
@@ -227,12 +231,14 @@ def unscented_transform(u:GaussianMixture,Q:np.ndarray,R:np.ndarray):
             w_m =[]
             w_c= []
             w_m_0 = lamb/(L_s+lamb)
+            #w_m_0 = 1/3
             w_c_0 = (lamb/(L_s+lamb)) + (1-a**2+B)
             w_m.append(w_m_0)
             w_c.append(w_c_0)
             for j in range(P_size+Q_size+R_size):
                 x = m + L[:,j]
                 w = 1/(2*(L_s+lamb))
+                #w = (1-w_m_0)/(2*D_total)
                 w_m.append(w)
                 w_c.append(w)
                 u_s.append(x)
@@ -410,16 +416,18 @@ class GmphdFilter_UKF:
             s_kpr = np.zeros((np.shape(z_l[0])[0],np.shape(z_l[0])[0]),dtype=float)
             G_k = np.zeros((np.shape(x_l[0])[0], np.shape(z_l[0])[0]))
             for j in range(len(x_l)):
-                P_kpr = P_kpr + W_m[i][j] * (sympy.matrix2numpy(x_l[j])-m_kpr) @ (
+                P_kpr = P_kpr + W_c[i][j] * (sympy.matrix2numpy(x_l[j])-m_kpr) @ (
                         sympy.matrix2numpy(x_l[j])-m_kpr).transpose()
-                s_kpr = s_kpr + W_m[i][j] * (sympy.matrix2numpy(z_l[j]) - z_kpr) @ (
+                s_kpr = s_kpr + W_c[i][j] * (sympy.matrix2numpy(z_l[j]) - z_kpr) @ (
                             sympy.matrix2numpy(z_l[j]) - z_kpr).transpose()
-                G_k = G_k + W_m[i][j] * (sympy.matrix2numpy(x_l[j]) - m_kpr) @ (
+                G_k = G_k + W_c[i][j] * (sympy.matrix2numpy(x_l[j]) - m_kpr) @ (
                         sympy.matrix2numpy(z_l[j]) - z_kpr).transpose()
 
             K.append(G_k @ np.linalg.inv(s_kpr.astype(float)))
+            P_kpr = 0.5*P_kpr + 0.5*P_kpr.transpose()
+            P_kpr = P_kpr + 1*10**-8 * np.eye(np.shape(x_l[0])[0])
             p_tmp = P_kpr - G_k @ np.linalg.inv(s_kpr.astype(float)) @ G_k.transpose()
-            p_tmp = np.round(p_tmp,10)
+            #p_tmp = np.around(p_tmp.astype(np.double),10)
             P_kk.append(p_tmp)
             S_kpr.append(s_kpr)
 
