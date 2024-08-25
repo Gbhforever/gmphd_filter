@@ -195,7 +195,7 @@ def unscented_transform(u:GaussianMixture,Q:np.ndarray,R:np.ndarray):
     sigma_points=[]
     W_m = []
     W_c =[]
-    a = 1
+    a = 1*10**-3
     B = 2
     k = 0.1
     if not (len(u.w)==0):
@@ -402,26 +402,36 @@ class GmphdFilter_UKF:
                 V = points[5:10]
                 E = points[10:12]
                 x_pred = self.F.subs([(x, X[0]), (y, X[1]), (xd, X[2]), (yd, X[3]), (w, X[4])])
-                z_pred = self.H @ x_pred
+                x_pred = sympy.matrix2numpy(x_pred).flatten() + V
+                z_pred = self.H @ x_pred +E
                 x_l.append(x_pred)
                 z_l.append(z_pred)
-            m_kpr = np.zeros((np.shape(x_l[0])[0],1))
-            z_kpr =np.zeros((np.shape(z_l[0])[0],1))
+            m_kpr = np.zeros((np.shape(x_l[0])[0]))
+            z_kpr =np.zeros((np.shape(z_l[0])[0]))
             for j in range(len(x_l)):
-                m_kpr = m_kpr + W_m[i][j] * sympy.matrix2numpy(x_l[j])
-                z_kpr = z_kpr + W_m[i][j] * sympy.matrix2numpy(z_l[j])
+                #m_kpr = m_kpr + W_m[i][j] * sympy.matrix2numpy(x_l[j])
+                #z_kpr = z_kpr + W_m[i][j] * sympy.matrix2numpy(z_l[j])
+                m_kpr = m_kpr + W_m[i][j] * x_l[j]
+                z_kpr = z_kpr + W_m[i][j] * z_l[j]
             M_kpr.append(m_kpr)
             Z_kpr.append(z_kpr)
             P_kpr = np.zeros((np.shape(x_l[0])[0],np.shape(x_l[0])[0]))
             s_kpr = np.zeros((np.shape(z_l[0])[0],np.shape(z_l[0])[0]),dtype=float)
             G_k = np.zeros((np.shape(x_l[0])[0], np.shape(z_l[0])[0]))
+            # for j in range(len(x_l)):
+            #     P_kpr = P_kpr + W_c[i][j] * (sympy.matrix2numpy(x_l[j])-m_kpr) @ (
+            #             sympy.matrix2numpy(x_l[j])-m_kpr).transpose()
+            #     s_kpr = s_kpr + W_c[i][j] * (sympy.matrix2numpy(z_l[j]) - z_kpr) @ (
+            #                 sympy.matrix2numpy(z_l[j]) - z_kpr).transpose()
+            #     G_k = G_k + W_c[i][j] * (sympy.matrix2numpy(x_l[j]) - m_kpr) @ (
+            #             sympy.matrix2numpy(z_l[j]) - z_kpr).transpose()
             for j in range(len(x_l)):
-                P_kpr = P_kpr + W_c[i][j] * (sympy.matrix2numpy(x_l[j])-m_kpr) @ (
-                        sympy.matrix2numpy(x_l[j])-m_kpr).transpose()
-                s_kpr = s_kpr + W_c[i][j] * (sympy.matrix2numpy(z_l[j]) - z_kpr) @ (
-                            sympy.matrix2numpy(z_l[j]) - z_kpr).transpose()
-                G_k = G_k + W_c[i][j] * (sympy.matrix2numpy(x_l[j]) - m_kpr) @ (
-                        sympy.matrix2numpy(z_l[j]) - z_kpr).transpose()
+                P_kpr = P_kpr + W_c[i][j] * np.outer((x_l[j]-m_kpr),(
+                        x_l[j]-m_kpr).transpose())
+                s_kpr = s_kpr + W_c[i][j] * np.outer((z_l[j] - z_kpr) ,(
+                            z_l[j] - z_kpr).transpose())
+                G_k = G_k + W_c[i][j] * np.outer((x_l[j] - m_kpr) , (
+                        z_l[j] - z_kpr).transpose())
 
             K.append(G_k @ np.linalg.inv(s_kpr.astype(float)))
             P_kpr = 0.5*P_kpr + 0.5*P_kpr.transpose()
@@ -443,7 +453,7 @@ class GmphdFilter_UKF:
             normalization_factor = np.sum(Values) + self.clutter_density_func(z)
             for k in range(len(Values)):
                 w.append(Values[k] / normalization_factor)
-                m.append(M_kpr[k].flatten() + K[i] @ (z - Z_kpr[k].flatten()))
+                m.append(M_kpr[k].flatten() + K[k] @ (z - Z_kpr[k].flatten()))
                 P.append(P_kk[k].copy())
 
         return GaussianMixture(w, m, P)
