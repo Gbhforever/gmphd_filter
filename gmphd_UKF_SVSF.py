@@ -2,8 +2,10 @@ import numpy as np
 import numpy.linalg as lin
 from typing import List, Dict, Any
 import sympy
+global EKF_count
+global SVSF_count
+import scipy.special
 import time
-from scipy import stats
 
 def multivariate_gaussian(x: np.ndarray, m: np.ndarray, P: np.ndarray) -> float:
     """
@@ -15,7 +17,7 @@ def multivariate_gaussian(x: np.ndarray, m: np.ndarray, P: np.ndarray) -> float:
     :return: probability density function at x
     """
     first_part = 1 / (((2 * np.pi) ** (x.size / 2.0)) * (lin.det(P) ** 0.5))
-    second_part = -0.5 * (x - m.flatten()).transpose() @ lin.inv(P) @ (x - m.flatten())
+    second_part = -0.5 * (x - m) @ lin.inv(P) @ (x - m)
     return first_part * np.exp(second_part)
 
 
@@ -54,7 +56,7 @@ def clutter_intensity_function(z: np.ndarray, lc: int, surveillance_region: np.n
 
 
 class GaussianMixture:
-    def __init__(self, w: List[np.float64], m: List[np.ndarray], P: List[np.ndarray]):
+    def __init__(self, w: List[np.float64], m: List[np.ndarray], P: List[np.ndarray], e: List[np.ndarray]):
         """
         The Gaussian mixture class
 
@@ -65,12 +67,15 @@ class GaussianMixture:
         Note that constructor creates detP and invP variables which can be used instead of P list, for covariance matrix
         determinant and inverse. These lists cen be initialized with assign_determinant_and_inverse function, and
         it is useful in case we already have precalculated determinant and inverse earlier.
+
+        :param e: list of np.ndarray errors
         """
         self.w = w
         self.m = m
         self.P = P
         self.detP = None
         self.invP = None
+        self.e = e
 
     def set_covariance_determinant_and_inverse_list(self, detP: List[np.float64], invP: List[np.ndarray]):
         """
@@ -124,21 +129,39 @@ class GaussianMixture:
                     self.w[i] * multivariate_gaussian_predefined_det_and_inv(x, self.m[i], self.detP[i], self.invP[i]))
         return val
 
+    def saturate(self,e: np.ndarray,G: np.ndarray,index) -> np.ndarray:
+        sat =[]
+        if(index ==-1):
+            index = [0, np.shape(G)[0]-1]
+
+        s = e/G[index[0]:index[1]]
+        for i in range(np.shape(s)[0]):
+            if s[i] >= 1:
+                s[i] = 1
+            elif s[i] <= -1:
+                s[i] = -1
+        sat.append(s)
+
+        return sat
+
     def copy(self):
         w = self.w.copy()
         m = []
         P = []
+        e = []
         for m1 in self.m:
             m.append(m1.copy())
         for P1 in self.P:
             P.append(P1.copy())
-        return GaussianMixture(w, m, P)
+        for e1 in self.e:
+            e.append(e1.copy())
+        return GaussianMixture(w, m, P, e)
 
 
 def get_matrices_inverses(P_list: List[np.ndarray]) -> List[np.ndarray]:
     inverse_P_list = []
     for P in P_list:
-        inverse_P_list.append(lin.pinv(P.astype(float)))
+        inverse_P_list.append(lin.inv(P))
     return inverse_P_list
 
 
@@ -152,6 +175,22 @@ def get_matrices_determinants(P_list: List[np.ndarray]) -> List[float]:
         detP.append(lin.det(P))
     return detP
 
+
+def thinning_and_displacement(v: GaussianMixture, p, F: np.ndarray, Q: np.ndarray):
+    """
+    For the given Gaussian mixture v, perform thinning with probability P and displacement with N(x; F @ x_prev, Q)
+    See https://ieeexplore.ieee.org/document/7202905 for details
+    """
+    w = []
+    m = []
+    P = []
+    for weight in v.w:
+        w.append(weight * p)
+    for mean in v.m:
+        m.append(F @ mean)
+    for cov_matrix in v.P:
+        P.append(Q + F @ cov_matrix @ F.T)
+    return GaussianMixture(w, m, P,v.e)
 
 def non_linear_predict(v: GaussianMixture, p, F: sympy.Matrix, Q: np.ndarray,F_jacobian: sympy.Matrix):
     """
@@ -176,7 +215,7 @@ def non_linear_predict(v: GaussianMixture, p, F: sympy.Matrix, Q: np.ndarray,F_j
         F_j = np.vstack(F_j)
         P.append(Q + F_j @ cov_matrix @ F_j.T)
         index = index+1
-    return GaussianMixture(w_s, m, P)
+    return GaussianMixture(w_s, m, P,v.e)
 def linear_update(v: GaussianMixture, p, F: np.ndarray, Q: np.ndarray):
     """
     For the given Gaussian mixture v, perform thinning with probability P and displacement with N(x; F @ x_prev, Q)
@@ -192,6 +231,7 @@ def linear_update(v: GaussianMixture, p, F: np.ndarray, Q: np.ndarray):
     for cov_matrix in v.P:
         P.append(Q + F @ cov_matrix @ F.T)
     return GaussianMixture(w, m, P)
+
 def unscented_transform(u:GaussianMixture,Q:np.ndarray,R:np.ndarray):
     sigma_points=[]
     W_m = []
@@ -256,9 +296,7 @@ def unscented_transform(u:GaussianMixture,Q:np.ndarray,R:np.ndarray):
         #     for point in component:
         #
     return sigma_points,W_m,W_c
-
-
-class GmphdFilter_UKF:
+class GmphdFilter_UKF_svsf:
     def __init__(self, model: Dict[str, Any]):
         """
         The Gaussian Mixture Probability Hypothesis Density filter implementation.
@@ -290,11 +328,21 @@ class GmphdFilter_UKF:
 
              F_spawn:  d_spawn: Q_spawn: w_spawn: lists of ndarray objects with the same length, see pg. 5
 
+             G: boundary layer width
+
+             g: svsf convergence rate
+
+             u: number of measureable states from 0->n-1
+
+             l number of unmeasureable states from n-> sizeof state vector
+
             clutt_int_fun: reference to clutter intensity function, gets only one argument, which is the current measure
 
                T: U: Jmax: Pruning parameters, see pg. 7.
 
             birth_GM: The Gaussian Mixture of the birth intensity
+
+
         """
         # to do: dtype, copy, improve performance
         self.p_s = model['p_s']
@@ -314,6 +362,23 @@ class GmphdFilter_UKF:
         self.U = model['U']
         self.Jmax = model['Jmax']
 
+        self.G = model['G']
+        self.g = model['g']
+
+        self.u = model['u']
+        self.l = model['l']
+        self.t = np.eye(np.shape(self.F)[0])
+        assert(self.u+self.l == np.shape(self.F)[0])
+
+        #SVSF precomputed Matrices
+        self.H_1 = lin.inv(self.H[:, 0:self.u])
+        phi = self.t @ self.F_jacobian @ lin.inv(self.t)
+        [phi_x, phi_y] = np.shape(phi)
+        self.phi_22 = phi[int(phi_x / 2):phi_x, int(phi_y / 2):phi_y]
+        self.phi_12 = phi[0:int(phi_x / 2), int(phi_y / 2):phi_y]
+        #self.phi_12_inv = lin.inv(self.phi_12)
+
+
     def spawn_mixture(self, v: GaussianMixture) -> GaussianMixture:
         """
         Spawning targets in prediction step
@@ -321,12 +386,16 @@ class GmphdFilter_UKF:
         w = []
         m = []
         P = []
+        e =[]
         for i, w_v in enumerate(v.w):
             for j, w_spawn in enumerate(self.w_spawn):
                 w.append(w_v * w_spawn)
                 m.append(self.F_spawn[j] @ v.m[i] + self.d_spawn[j])
                 P.append(self.Q_spawn[j] + self.F_spawn[j] @ v.P[i] @ self.F_spawn[j].T)
-        return GaussianMixture(w, m, P)
+        return GaussianMixture(w, m, P, e)
+    def birth(self, v: GaussianMixture) -> GaussianMixture:
+        birth_copy = self.birth_GM.copy()
+        return GaussianMixture(v.w+birth_copy.w,v.m+birth_copy.m,v.P+birth_copy.P,v.e+birth_copy.e)
 
     def prediction(self, v: GaussianMixture) -> GaussianMixture:
         """
@@ -337,17 +406,12 @@ class GmphdFilter_UKF:
         # v_pred = v_s + v_spawn +  v_new_born
         birth_copy = self.birth_GM.copy()
         # targets that survived v_s:
-        D = np.shape(self.F)[0]
-        W = 1/(2*D)
-
-        u_s = unscented_transform(v,self.Q,self.R)
-        v_s = non_linear_predict(v, self.p_s, self.F, self.Q,self.F_jacobian)
-
+        v_s = non_linear_predict(v, self.p_s, self.F, self.Q, self.F_jacobian)
         # spawning targets
         v_spawn = self.spawn_mixture(v)
         # final phd of prediction
         return GaussianMixture(v_s.w + v_spawn.w + birth_copy.w, v_s.m + v_spawn.m + birth_copy.m,
-                               v_s.P + v_spawn.P + birth_copy.P)
+                               v_s.P + v_spawn.P + birth_copy.P, v_s.e+v_spawn.e+birth_copy.e)
 
     def correction(self, v: GaussianMixture, Z: List[np.ndarray]) -> GaussianMixture:
         """
@@ -356,43 +420,79 @@ class GmphdFilter_UKF:
         - v: Gaussian mixture obtained from the prediction step
         - Z: Measurement set, containing set of observations
         """
-        v_residual = linear_update(v, self.p_d, self.H, self.R)
+        x, y, xd, yd, w = sympy.symbols("x,y,xd,yd,w")
+        v_residual = thinning_and_displacement(v, self.p_d, self.H, self.R)
         detP = get_matrices_determinants(v_residual.P)
         invP = get_matrices_inverses(v_residual.P)
         v_residual.set_covariance_determinant_and_inverse_list(detP, invP)
 
-        K = []
+        K_EKF = []
         P_kk = []
         for i in range(len(v_residual.w)):
             k = v.P[i] @ self.H.T @ invP[i]
-            K.append(k)
+            K_EKF.append(k)
             P_kk.append(v.P[i] - k @ self.H @ v.P[i])
-
         v_copy = v.copy()
-        w = (np.array(v_copy.w) * (1 - self.p_d)).tolist()
+        weight = (np.array(v_copy.w) * (1 - self.p_d)).tolist()
         m = v_copy.m
         P = v_copy.P
-
+        P_orig = v.copy().P
+        e = v_copy.e
+        #a = time.time()
         for z in Z:
             values = v_residual.mixture_component_values_list(z)
             normalization_factor = np.sum(values) + self.clutter_density_func(z)
             for i in range(len(v_residual.w)):
-                w.append(values[i] / normalization_factor)
-                m.append(v.m[i] + K[i] @ (z - v_residual.m[i]))
-                P.append(P_kk[i].copy())
+                error = z - self.H @ v.m[i]
+                sat = v.saturate(error,self.G,[0,self.u])
+                weigh =  values[i]/normalization_factor
+                if(weigh >= self.T):
+                    if True:#(np.any(np.abs(sat)>=1.)):
+                        phi_12 = self.phi_12
+                        phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+                        phi_12 = sympy.matrix2numpy(phi_12, dtype=float)
+                        inv_phi_12 = lin.pinv(phi_12)
+                        phi_22 = self.phi_22
+                        phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+                        phi_22 = sympy.matrix2numpy(phi_22, dtype=float)
 
-        return GaussianMixture(w, m, P)
-    def birth(self, v: GaussianMixture) -> GaussianMixture:
-        birth_copy = self.birth_GM.copy()
-        return GaussianMixture(v.w+birth_copy.w,v.m+birth_copy.m,v.P+birth_copy.P)
+                        t_1 = phi_22 @ inv_phi_12 @ error
+                        E_z = abs(error) + np.diagflat(np.full((self.u,1),self.g)) @ abs(v.e[i])
+                        k_u = self.H_1 @ np.diagflat(E_z * v.saturate(error,self.G,[0,self.u-1])) @ lin.pinv(np.diagflat(error))
 
+                        E_y = abs(t_1) + np.diagflat(np.full((self.l,1),self.g)) @ abs(inv_phi_12@error)
+                        k_l = np.diagflat(E_y) * v.saturate(t_1,self.G,[self.u-1,np.shape(self.G)[0]]) @ lin.pinv(np.diagflat(t_1))@phi_22@inv_phi_12
 
+                        K = np.vstack((k_u,k_l))
+                        x_po = v.m[i] + K @ error
+
+                        S_k = self.H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ self.H_1.T + self.R
+                        P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
+                        e_kpo = z - self.H @ x_po
+                        weight.append(weigh)
+                        m.append(x_po)
+                        P.append(P_kpo)
+                        e.append(e_kpo)
+                        #print("using svsf")
+                        global SVSF_count
+                        SVSF_count = SVSF_count + 1
+                    else:
+                        weight.append(weigh)
+                        m.append(v.m[i] + K_EKF[i] @ (z - v_residual.m[i]))
+                        P.append(P_kk[i].copy())
+                        e.append(z- self.H @(v.m[i] + K_EKF[i] @ (z - v_residual.m[i])))
+                        #print("using EKF")
+                        global EKF_count
+                        EKF_count = EKF_count+1
+        #print('svsf time: ' + str(time.time() - a) + ' sec')
+
+        return GaussianMixture(weight, m, P,e)
     def unscented_predict_update(self, v: GaussianMixture, Z: List[np.ndarray]) -> GaussianMixture:
         x, y, xd, yd, w = sympy.symbols("x,y,xd,yd,w")
         #a = time.time()
         sigma_points,W_m,W_c = unscented_transform(v,self.Q,self.R)
         #print('sigma time: ' + str(time.time() - a) + ' sec')
-        K=[]
+        UKF_K=[]
         P_kk=[]
         M_kpr=[]
         Z_kpr = []
@@ -446,34 +546,67 @@ class GmphdFilter_UKF:
                 G_k = G_k + W_c[i][j] * np.outer((x_l[j] - m_kpr) , (
                         z_l[j] - z_kpr).transpose())
             #pretime = pretime + time.time() - a
-            K.append(G_k @ np.linalg.inv(s_kpr.astype(float)))
+            UKF_K.append(G_k @ np.linalg.inv(s_kpr.astype(float)))
             P_kpr = 0.5*P_kpr + 0.5*P_kpr.transpose()
             P_kpr = P_kpr + 1*10**-8 * np.eye(np.shape(x_l[0])[0])
             p_tmp = P_kpr - G_k @ np.linalg.inv(s_kpr.astype(float)) @ G_k.transpose()
             #p_tmp = np.around(p_tmp.astype(np.double),10)
-            P_kk.append(p_tmp)
+            P_kk.append(p_tmp.astype(float))
             S_kpr.append(s_kpr)
         #print("pretime is " + str(pretime) + "sec")
         #print("pointtime is " + str(ptime) + "sec")
         v_copy = v.copy()
-        w = (np.array(v_copy.w) * (1 - self.p_d)).tolist()
+        weight = (np.array(v_copy.w) * (1 - self.p_d)).tolist()
         m = v_copy.m
         P = v_copy.P
+        e = v_copy.e
         for j, z in enumerate(Z):
             Values = []
             for i in range(len(v.w)):
                 values = self.p_d * v_copy.w[i] * multivariate_gaussian(z,Z_kpr[i].astype(float),S_kpr[i].astype(float))
                 Values.append(values)
             normalization_factor = np.sum(Values) + self.clutter_density_func(z)
-            for k in range(len(Values)):
-                w.append(Values[k] / normalization_factor)
-                m.append(M_kpr[k].flatten() + K[k] @ (z - Z_kpr[k].flatten()))
-                P.append(P_kk[k].copy())
+            for i in range(len(v.w)):
+                error = z - self.H @ v.m[i]
+                sat = v.saturate(error, self.G, [0, self.u])
+                weigh = Values[i] / normalization_factor
+                if (weigh >= self.T):
+                    if False:#(np.any(np.abs(sat)>=1.)):
+                        phi_12 = self.phi_12
+                        phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+                        phi_12 = sympy.matrix2numpy(phi_12, dtype=float)
+                        inv_phi_12 = lin.pinv(phi_12)
+                        phi_22 = self.phi_22
+                        phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+                        phi_22 = sympy.matrix2numpy(phi_22, dtype=float)
 
-        return GaussianMixture(w, m, P)
+                        t_1 = phi_22 @ inv_phi_12 @ error
+                        E_z = abs(error) + np.diagflat(np.full((self.u,1),self.g)) @ abs(v.e[i])
+                        k_u = self.H_1 @ np.diagflat(E_z * v.saturate(error,self.G,[0,self.u-1])) @ lin.pinv(np.diagflat(error))
 
+                        E_y = abs(t_1) + np.diagflat(np.full((self.l,1),self.g)) @ abs(inv_phi_12@error)
+                        k_l = np.diagflat(E_y) * v.saturate(t_1,self.G,[self.u-1,np.shape(self.G)[0]]) @ lin.pinv(np.diagflat(t_1))@phi_22@inv_phi_12
 
+                        K = np.vstack((k_u,k_l))
+                        x_po = v.m[i] + K @ error
 
+                        S_k = self.H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ self.H_1.T + self.R
+                        P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
+                        e_kpo = z - self.H @ x_po
+                        weight.append(weigh)
+                        m.append(x_po)
+                        P.append(P_kpo)
+                        e.append(e_kpo)
+                        #print("using svsf")
+                        global SVSF_count
+                        SVSF_count = SVSF_count + 1
+                    else:
+                        weight.append(Values[i] / normalization_factor)
+                        m.append(M_kpr[i].flatten() + UKF_K[i] @ (z - Z_kpr[i].flatten()))
+                        e.append(z - self.H @ (M_kpr[i].flatten() + UKF_K[i] @ (z - Z_kpr[i].flatten())))
+                        P.append(P_kk[i].copy())
+
+        return GaussianMixture(weight, m, P,e)
     def pruning(self, v: GaussianMixture) -> GaussianMixture:
         """
         See https://ieeexplore.ieee.org/document/7202905 for details
@@ -482,14 +615,19 @@ class GmphdFilter_UKF:
         w = [v.w[i] for i in I]
         m = [v.m[i] for i in I]
         P = [v.P[i] for i in I]
-        v = GaussianMixture(w, m, P)
+        e = [v.e[i] for i in I]
+
+
+        v = GaussianMixture(w, m, P,e)
         I = (np.array(v.w) > self.T).nonzero()[0].tolist()
         invP = get_matrices_inverses(v.P)
         vw = np.array(v.w)
         vm = np.array(v.m)
+        ve = np.array(v.e)
         w = []
         m = []
         P = []
+        e = []
         while len(I) > 0:
             j = I[0]
             for i in I:
@@ -502,12 +640,15 @@ class GmphdFilter_UKF:
             w_new = np.sum(vw[L])
             m_new = np.sum((vw[L] * vm[L].T).T, axis=0) / w_new
             P_new = np.zeros((m_new.shape[0], m_new.shape[0]))
+            #e_new = np.sum(ve[L],0) / w_new
+            e_new = np.max(ve[L],0)
             for i in L:
                 P_new += (vw[i] * (v.P[i] + np.outer(m_new - vm[i], m_new - vm[i]))).astype(float)
             P_new /= w_new
             w.append(w_new)
             m.append(m_new)
             P.append(P_new)
+            e.append(e_new)
             I = [i for i in I if i not in L]
 
         if len(w) > self.Jmax:
@@ -515,8 +656,9 @@ class GmphdFilter_UKF:
             w = [w[i] for i in L]
             m = [m[i] for i in L]
             P = [P[i] for i in L]
+            e = [e[i] for i in L]
 
-        return GaussianMixture(w, m, P)
+        return GaussianMixture(w, m, P, e)
 
     def state_estimation(self, v: GaussianMixture) -> List[np.ndarray]:
         X = []
@@ -536,17 +678,20 @@ class GmphdFilter_UKF:
         list of estimated track sets for each time step
         """
         X = []
-        v = GaussianMixture([], [], [])
+        v = GaussianMixture([], [], [], [])
+        global EKF_count
+        global SVSF_count
+        EKF_count = 0
+        SVSF_count = 0
         for z in Z:
-            # v = self.prediction(v)
-            # v = self.correction(v, z)
-            # if not (len(X)==0):
             v = self.birth(v)
             a = time.time()
             v = self.unscented_predict_update(v, z)
-            print('predict time: ' + str(time.time() - a) + ' sec')
+            print('correct time: ' + str(time.time() - a) + ' sec')
             v = self.pruning(v)
-            #print('number of components' + str(len(v.w)))
+            print('number of components' + str(len(v.w)))
             x = self.state_estimation(v)
             X.append(x)
+        print("EKF Count:" +str(EKF_count))
+        print("SVSF Count:" + str(SVSF_count))
         return X

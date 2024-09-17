@@ -1,7 +1,8 @@
 import numpy as np
 import numpy.linalg as lin
 from typing import List, Dict, Any
-
+import warnings
+warnings.simplefilter('error')
 import scipy.special
 
 
@@ -402,17 +403,22 @@ class GmphdFilter_svsf:
             for i in I:
                 if (vm[i] - vm[j]) @ invP[i] @ (vm[i] - vm[j]) <= self.U:
                     L.append(i)
-            w_new = np.sum(vw[L])
-            m_new = np.sum((vw[L] * vm[L].T).T, axis=0) / w_new
-            P_new = np.zeros((m_new.shape[0], m_new.shape[0]))
-            e_new = np.sum(ve[L],0) / w_new
+            try:
+                w_new = np.sum(vw[L])
+                m_new = np.sum((vw[L] * vm[L].T).T, axis=0) / w_new
+                P_new = np.zeros((m_new.shape[0], m_new.shape[0]))
+                e_new = np.sum(ve[L],0) / w_new
+            except:
+                bk = 0
             for i in L:
                 P_new += vw[i] * (v.P[i] + np.outer(m_new - vm[i], m_new - vm[i]))
+
             P_new /= w_new
             w.append(w_new)
             m.append(m_new)
             P.append(P_new)
             e.append(e_new)
+
             I = [i for i in I if i not in L]
 
         if len(w) > self.Jmax:
@@ -447,6 +453,7 @@ class GmphdFilter_svsf:
             v = self.prediction(v)
             v = self.correction(v, z)
             v = self.pruning(v)
+            print('number of components' + str(len(v.w)))
             x = self.state_estimation(v)
             X.append(x)
         return X

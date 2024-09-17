@@ -10,7 +10,8 @@ from gmphd import *
 from gmphd_EKF import *
 from gmphd_UKF import *
 from gmphd_svsf import *
-
+from gmphd_EKF_SVSF import *
+from gmphd_UKF_SVSF import *
 from sympy import Matrix , sin, cos
 from sympy import symbols
 def process_model_for_example_1():
@@ -24,7 +25,7 @@ def process_model_for_example_1():
     model['T_s'] = T_s
 
     # number of scans, number of iterations in our simulation
-    model['num_scans'] = 100
+    model['num_scans'] = 1000
 
     # Surveillance region
     x_min = -1500
@@ -124,11 +125,11 @@ def process_model_for_example_1_Nonlinear():
     model = {}
 
     # Sampling time, time step duration
-    T_s = 1.
+    T_s = 1
     model['T_s'] = T_s
 
     # number of scans, number of iterations in our simulation
-    model['num_scans'] = 100
+    model['num_scans'] = 150
 
     # Surveillance region
     x_min = -1500
@@ -151,14 +152,25 @@ def process_model_for_example_1_Nonlinear():
                xd*sin(w*T_s)+yd*cos(w*T_s),
                 w])
     F_jacobian = F.jacobian(state)
+
+    F_2 = Matrix([x+xd,
+               y+yd,
+               xd,
+               yd,
+                w])
+    F_3 = Matrix([x + (xd / w) * sin(w * T_s) - (yd / w) * (1 - cos(w * T_s)),
+                y + (xd / w) * (1 - cos(w * T_s)) + (yd / w) * sin(w * T_s),
+                xd * cos(w * T_s) - yd * sin(w * T_s),
+                xd * sin(w * T_s) + yd * cos(w * T_s),
+                -abs(w)])
     model['F'] = F
-    model['F_library'] = [F]
+    model['F_library'] = [F,F_2,F_3]
     model['F_jacobian'] = F_jacobian
 
-    model['G'] = [200.0, 200.0, 200, 200]
-    model['g'] = 0
+    model['G'] = [100.0, 100.0, 200, 200]
+    model['g'] = 0.1
     model['u'] = 2
-    model['l'] = 2
+    model['l'] = 3
     # Process noise covariance matrix
     L2 = 1.75*10**-5
     L1 = 0.001
@@ -186,12 +198,12 @@ def process_model_for_example_1_Nonlinear():
     P_pom_ = np.diag([50., 50., 300., 300.,math.radians(3)])
     P = [P_pom_.copy(), P_pom_.copy(), P_pom_.copy(), P_pom_.copy()]
     #e = [np.array([0., 0., 0., 0.]), np.array([0., 0., 0., 0.]), np.array([0., 0., 0., 0.]), np.array([0., 0., 0., 0.])]
-    e = [np.array([0., 0.]), np.array([0., 0.,]), np.array([0., 0.]), np.array([0., 0.])]
+    e = [np.array([25., 25.]), np.array([25., 25.,]), np.array([25., 25.]), np.array([25., 25.])]
     model['birth_GM'] = GaussianMixture(w, m, P, e)
 
     # MEASUREMENT MODEL
     # probability of detection
-    model['p_d'] = 0.98
+    model['p_d'] = 1
 
     # measurement matrix z = Hx + v = N(z; Hx, R)
     model['H'] = np.zeros((2, 5))
@@ -201,7 +213,7 @@ def process_model_for_example_1_Nonlinear():
     model['R'] = I_2 * (sigma_v ** 2)
 
     # the reference to clutter intensity function
-    model['lc'] = 50 #50
+    model['lc'] = 0 #50
     model['clutt_int_fun'] = lambda z: clutter_intensity_function(z, model['lc'], model['surveillance_region'])
 
     # pruning and merging parameters:
@@ -334,7 +346,33 @@ def example1(num_of_scans=100):
                      np.array([0., 0., -20., -15.]),
                      np.array([-200., 800., 15., -5.])]
     return targets_birth_time, targets_death_time, targets_start, target_model_time
+def example1_nonlinear(num_of_scans=1000):
+    targets_birth_time = [1, 1, 1, 20, 20, 20, 40, 40, 60, 60, 80, 80]
+    targets_birth_time = (np.array(targets_birth_time) - 1).tolist()
 
+    targets_death_time = [70, num_of_scans, 70, num_of_scans, num_of_scans, num_of_scans,
+                         num_of_scans, num_of_scans, num_of_scans, num_of_scans, num_of_scans,
+                         num_of_scans]
+    target_model_time = [[25,75],[25,75],[25,75],[40,105],[40,105],[40,105],[85,125],[85,125],[110,145],[110,145],[130,165],[130,165]]
+
+
+    targets_start = [np.array([0., 0., 0., -10.,math.radians(3)]),
+                     np.array([400., -600., -10., 5.,math.radians(3)]),
+                     np.array([-800., -200., 20., -5.,math.radians(3)]),
+
+                     np.array([400., -600., -7., -4.,math.radians(3)]),
+                     np.array([400., -600., -2.5, 10.,math.radians(3)]),
+                     np.array([0., 0., 7.5, -5.,math.radians(3)]),
+
+                     np.array([-800., -200., 12., 7.,math.radians(3)]),
+                     np.array([-200., 800., 15., -10.,math.radians(3)]),
+
+                     np.array([-800., -200., 3., 15.,math.radians(3)]),
+                     np.array([-200., 800., -3., -15.,math.radians(3)]),
+
+                     np.array([0., 0., -20., -15.,math.radians(3)]),
+                     np.array([-200., 800., 15., -5.,math.radians(3)])]
+    return targets_birth_time, targets_death_time, targets_start, target_model_time
 
 def example2(num_of_scans=100):
     targets_birth_time = [1, 1]
@@ -360,7 +398,7 @@ def example3_nonlinear(num_of_scans=100):
     targets_birth_time = (np.array(targets_birth_time) - 1).tolist()
     targets_death_time = [100]
     targets_start = [np.array([0., 0., -10., -10.,math.radians(3)])]
-    target_model_time = [20,50,80]#[50]
+    target_model_time = [[1,2]]#[[20,50,80]]#[50]
     return targets_birth_time, targets_death_time, targets_start, target_model_time
 
 def generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,target_model_time, targets_spw_time_brttgt_vel=[],
@@ -426,8 +464,7 @@ def generate_trajectories_non_linear(model, targets_birth_time, targets_death_ti
     num_of_scans = model['num_scans']
     trajectories = []
     F_arr =model['F_library']
-    idx=0
-    F = F_arr[idx]
+    idx=np.zeros(len(targets_birth_time),dtype=int)
     for i in range(num_of_scans):
         trajectories.append([])
     targets_tracks = {}
@@ -435,9 +472,10 @@ def generate_trajectories_non_linear(model, targets_birth_time, targets_death_ti
         target_state = start
         targets_tracks[i] = []
         for k in range(targets_birth_time[i], min(targets_death_time[i], num_of_scans)):
-            if k in target_model_time:
-                idx = (idx+1)%np.shape(F_arr)[0]
-                F = F_arr[idx]
+            F = F_arr[idx[i]]
+            if k in target_model_time[i]:
+                idx[i] = (idx[i]+1)%np.shape(F_arr)[0]
+                F = F_arr[idx[i]]
             #target_state = F @ target_state
             target_state = non_linear_update(F,target_state)
             if noise:
@@ -561,6 +599,7 @@ def calculate_MSE(X_collection, Trajectories,num_scans):
 
 
 if __name__ == '__main__':
+    np.random.seed(1)
     # For example 1, uncomment the following code.
     # =================================================Example 1========================================================
     model = process_model_for_example_1()
@@ -584,7 +623,6 @@ if __name__ == '__main__':
     # ==================================================================================================================
     Monte_carlo=1
     MSE = np.zeros((model["num_scans"],4))
-    np.random.seed(50)
     for i in range(Monte_carlo):
     # Collections of observations for each time step
         data = generate_measurements(model_nonlinear, trajectories)
@@ -593,8 +631,10 @@ if __name__ == '__main__':
     # Call of the gmphd filter for the created observations collections
         #gmphd = GmphdFilter(model)
         #gmphd = GmphdFilter_svsf(model)
-        gmphd = GmphdFilter_UKF(model_nonlinear)
+        #gmphd = GmphdFilter_UKF(model_nonlinear)
         #gmphd = GmphdFilter_EKF(model_nonlinear)
+        gmphd = GmphdFilter_EKF_svsf(model_nonlinear)
+        #gmphd = GmphdFilter_UKF_svsf(model_nonlinear)
 
         a = time.time()
         X_collection = gmphd.filter_data(data)
@@ -662,7 +702,7 @@ if __name__ == '__main__':
         num_targets_estimated.append(len(x_set))
 
     plt.figure()
-    (markerline, stemlines, baseline) = plt.stem(num_targets_estimated, label='estimated number of targets')
+    (markerline, stemlines, baseline) = plt.stem(num_targets_estimated, label='estimated number of targets',use_line_collection=True)
     plt.setp(baseline, color='k')  # visible=False)
     plt.setp(stemlines, visible=False)  # visible=False)
     plt.setp(markerline, markersize=3.0)
