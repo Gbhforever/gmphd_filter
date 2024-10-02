@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import numpy.linalg as lin
 from typing import List, Dict, Any
@@ -307,8 +309,10 @@ class GmphdFilter_EKF_svsf:
         assert(self.u+self.l == np.shape(self.F)[0])
 
         #SVSF precomputed Matrices
+        self.A = model['A']
         self.H_1 = lin.inv(self.H[:, 0:self.u])
-        phi = self.t @ self.F_jacobian @ lin.inv(self.t)
+        #phi = self.t @ self.F_jacobian @ lin.inv(self.t)
+        phi = self.t @ self.A @ lin.inv(self.t)
         [phi_x, phi_y] = np.shape(phi)
         self.phi_22 = phi[int(phi_x / 2):phi_x, int(phi_y / 2):phi_y]
         self.phi_12 = phi[0:int(phi_x / 2), int(phi_y / 2):phi_y]
@@ -379,20 +383,23 @@ class GmphdFilter_EKF_svsf:
                 error = z - self.H @ v.m[i]
                 error = error + 1*10**-12
                 sat = v.saturate(error,self.G,[0,self.u])
-                weigh =  values[i]/normalization_factor
+                if(values[i]==0):
+                    weigh = 0
+                else:
+                    weigh = values[i]/normalization_factor
                 if(weigh >= self.T):
-                    if True:#(np.any(np.abs(sat)>=1.)):
-                        phi_12 = self.phi_12
+                    if (np.any(np.abs(sat)>=1.)):
+                        phi_12 = self.phi_12.copy()
                         phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
                         phi_12 = sympy.matrix2numpy(phi_12, dtype=float)
                         inv_phi_12 = lin.pinv(phi_12)
-                        phi_22 = self.phi_22
+                        phi_22 = self.phi_22.copy()
                         phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
                         phi_22 = sympy.matrix2numpy(phi_22, dtype=float)
 
                         t_1 = phi_22 @ inv_phi_12 @ error
                         E_z = abs(error) + np.diagflat(np.full((self.u,1),self.g)) @ abs(v.e[i])
-                        k_u = self.H_1 @ np.diagflat(E_z * v.saturate(error,self.G,[0,self.u-1])) @ lin.pinv(np.diagflat(error))
+                        k_u = self.H_1 @ np.diagflat((E_z) * v.saturate(error,self.G,[0,self.u-1])) @ lin.pinv(np.diagflat(error))
 
                         E_y = abs(t_1) + np.diagflat(np.full((self.l,1),self.g)) @ abs(inv_phi_12@error)
                         k_l = np.diagflat(E_y) * v.saturate(t_1,self.G,[self.u-1,np.shape(self.G)[0]]) @ lin.pinv(np.diagflat(t_1))@phi_22@inv_phi_12
@@ -402,11 +409,11 @@ class GmphdFilter_EKF_svsf:
 
                         #S_k = self.H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ self.H_1.T + self.R
                         S_k = self.H @ v.P[i] @ self.H.T + self.R
-                        #P_kpo = v.P[i] - K @ self.H @ v.P[i] - v.P[i] @ self.H.T @ K.T + K @ S_k @ K.T
-                        try:
-                            P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
-                        except:
-                            bk=0
+                        P_kpo = v.P[i] - K @ self.H @ v.P[i] - v.P[i] @ self.H.T @ K.T + K @ S_k @ K.T
+                        # try:
+                        #     P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
+                        # except:
+                        #     bk=0
                         e_kpo = z - self.H @ x_po
                         weight.append(weigh)
                         m.append(x_po)
@@ -460,8 +467,8 @@ class GmphdFilter_EKF_svsf:
             w_new = np.sum(vw[L])
             m_new = np.sum((vw[L] * vm[L].T).T, axis=0) / w_new
             P_new = np.zeros((m_new.shape[0], m_new.shape[0]))
-            #e_new = np.sum(ve[L],0) / w_new
-            e_new = np.max(ve[L],0)
+            e_new = np.sum(ve[L],0) / w_new
+            #e_new = np.max(ve[L],0)
             for i in L:
                 P_new += vw[i] * (v.P[i] + np.outer(m_new - vm[i], m_new - vm[i]))
             P_new /= w_new

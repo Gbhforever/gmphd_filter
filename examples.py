@@ -166,13 +166,17 @@ def process_model_for_example_1_Nonlinear():
     model['F'] = F
     model['F_library'] = [F,F_2,F_3]
     model['F_jacobian'] = F_jacobian
-
-    model['G'] = [100.0, 100.0, 200, 200]
-    model['g'] = 0.1
+    model['A'] = Matrix([[1, 0, sin(w*T_s)/w,(1-cos(w*T_s))/w,0],
+                         [0,1,(1-cos(w*T_s))/w,sin(w*T_s)/w,0],
+                         [0,0,cos(w*T_s),-sin(w*T_s),0],
+                         [0,0,sin(w*T_s),cos(w*T_s),0],
+                         [0,0,0,0,1]])
+    model['G'] = [100.0, 100.0, 200, 200] #[100,100,200,200]
+    model['g'] = 0
     model['u'] = 2
     model['l'] = 3
     # Process noise covariance matrix
-    L2 = 1.75*10**-5
+    L2 = 1.75*10**-4 #1.75*10**-5
     L1 = 0.001
     Q = np.zeros((5,5))
     Q[0,:] = [T_s**3/3, 0, T_s**2/2, 0 , 0]
@@ -209,11 +213,11 @@ def process_model_for_example_1_Nonlinear():
     model['H'] = np.zeros((2, 5))
     model['H'][:, 0:2] = np.eye(2)
     # measurement noise covariance matrix
-    sigma_v = 10  # m
+    sigma_v = 15  # m
     model['R'] = I_2 * (sigma_v ** 2)
 
     # the reference to clutter intensity function
-    model['lc'] = 0 #50
+    model['lc'] = 50 #50
     model['clutt_int_fun'] = lambda z: clutter_intensity_function(z, model['lc'], model['surveillance_region'])
 
     # pruning and merging parameters:
@@ -604,14 +608,14 @@ if __name__ == '__main__':
     # =================================================Example 1========================================================
     model = process_model_for_example_1()
     model_nonlinear = process_model_for_example_1_Nonlinear()
-    targets_birth_time, targets_death_time, targets_start, target_model_time = example3_nonlinear(model_nonlinear['num_scans'])
+    targets_birth_time, targets_death_time, targets_start, target_model_time = example1_nonlinear(model_nonlinear['num_scans'])
     # targets_birth_time, targets_death_time, targets_start, target_model_time = example3(
     #     model['num_scans'])
     # trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start, target_model_time,
     #                                                      noise=False)
     trajectories, targets_tracks = generate_trajectories_non_linear(model_nonlinear, targets_birth_time, targets_death_time, targets_start,
                                                          target_model_time,
-                                                         noise=False)
+                                                         noise=True)
     # ==================================================================================================================
 
     # For example 2, uncomment the following code.

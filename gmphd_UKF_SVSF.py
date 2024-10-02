@@ -371,8 +371,9 @@ class GmphdFilter_UKF_svsf:
         assert(self.u+self.l == np.shape(self.F)[0])
 
         #SVSF precomputed Matrices
+        self.A = model['A']
         self.H_1 = lin.inv(self.H[:, 0:self.u])
-        phi = self.t @ self.F_jacobian @ lin.inv(self.t)
+        phi = self.t @ self.A @ lin.inv(self.t)
         [phi_x, phi_y] = np.shape(phi)
         self.phi_22 = phi[int(phi_x / 2):phi_x, int(phi_y / 2):phi_y]
         self.phi_12 = phi[0:int(phi_x / 2), int(phi_y / 2):phi_y]
@@ -447,7 +448,7 @@ class GmphdFilter_UKF_svsf:
                 sat = v.saturate(error,self.G,[0,self.u])
                 weigh =  values[i]/normalization_factor
                 if(weigh >= self.T):
-                    if True:#(np.any(np.abs(sat)>=1.)):
+                    if (np.any(np.abs(sat)>=1.)):
                         phi_12 = self.phi_12
                         phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
                         phi_12 = sympy.matrix2numpy(phi_12, dtype=float)
@@ -569,14 +570,17 @@ class GmphdFilter_UKF_svsf:
             for i in range(len(v.w)):
                 error = z - self.H @ v.m[i]
                 sat = v.saturate(error, self.G, [0, self.u])
-                weigh = Values[i] / normalization_factor
+                if (Values[i] == 0):
+                    weigh = 0
+                else:
+                    weigh = Values[i] / normalization_factor
                 if (weigh >= self.T):
-                    if False:#(np.any(np.abs(sat)>=1.)):
-                        phi_12 = self.phi_12
+                    if True:#(np.any(np.abs(sat)>=1.)):
+                        phi_12 = self.phi_12.copy()
                         phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
                         phi_12 = sympy.matrix2numpy(phi_12, dtype=float)
                         inv_phi_12 = lin.pinv(phi_12)
-                        phi_22 = self.phi_22
+                        phi_22 = self.phi_22.copy()
                         phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
                         phi_22 = sympy.matrix2numpy(phi_22, dtype=float)
 
