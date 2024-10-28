@@ -65,7 +65,7 @@ def process_model_for_example_1():
     #model['F_library'] = [F,F_1]
     model['F_library'] = [F_1,F_2]
 
-    model['G'] = [200.0, 200.0, 200, 200]
+    model['G'] = [25.0, 25.0, 100, 100] #[200,200,200,200]
     model['g'] = 0
     model['u'] = 2
     model['l'] = 2
@@ -76,7 +76,7 @@ def process_model_for_example_1():
     Q[2:, 0:2] = (T_s ** 3) / 2 * I_2
     Q[2:, 2:] = (T_s ** 2) * I_2
     # standard deviation of the process noise
-    sigma_w = 0.01
+    sigma_w = 0.1
     Q = Q * (sigma_w ** 2)
     model['Q'] = Q
 
@@ -171,7 +171,7 @@ def process_model_for_example_1_Nonlinear():
                          [0,0,cos(w*T_s),-sin(w*T_s),0],
                          [0,0,sin(w*T_s),cos(w*T_s),0],
                          [0,0,0,0,1]])
-    model['G'] = [100.0, 100.0, 200, 200] #[100,100,200,200]
+    model['G'] = [50.0, 50.0, 200, 200] #[100,100,200,200]
     model['g'] = 0
     model['u'] = 2
     model['l'] = 3
