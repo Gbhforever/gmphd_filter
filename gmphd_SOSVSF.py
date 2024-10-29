@@ -153,16 +153,16 @@ class GaussianMixture:
         m = []
         P = []
         e = []
-        e2 = []
+        E2 = []
         for m1 in self.m:
             m.append(m1.copy())
         for P1 in self.P:
             P.append(P1.copy())
         for e1 in self.e:
             e.append(e1.copy())
-        for e in self.e:
-            e2.append(e.copy())
-        return GaussianMixture(w, m, P, e,e2)
+        for e2 in self.e2:
+            E2.append(e2.copy())
+        return GaussianMixture(w, m, P, e,E2)
 
 
 def get_matrices_inverses(P_list: List[np.ndarray]) -> List[np.ndarray]:
@@ -306,7 +306,7 @@ class GmphdFilter_EKF_sosvsf:
 
         self.G = model['G']
         self.g = model['g']
-
+        self.lamb = model['lamb']
         self.u = model['u']
         self.l = model['l']
         self.t = np.eye(np.shape(self.F)[0])
@@ -404,19 +404,33 @@ class GmphdFilter_EKF_sosvsf:
                         phi_22 = sympy.matrix2numpy(phi_22, dtype=float)
                         delta_e = v.e[i]-v.e2[i]
 
-                        k_u = lin.pinv(self.H) @ (error - (v.e[i]/2) - self.g*math.sqrt((v.e[i]*v.e[i]/4) +(delta_e*delta_e/2)))
+                        #k_u = lin.pinv(self.H) @ (error - (v.e[i]/2) - self.g*np.sqrt((v.e[i]*v.e[i]/4) +(delta_e*delta_e/2)))
 
-                        k_l = phi_22@inv_phi_12*error - inv_phi_12*v.e[i]/2 -self.g*inv_phi_12*math.sqrt((v.e[i]*v.e[i]/4) +(delta_e*delta_e/2))
+                        #k_l = phi_22@inv_phi_12@error - inv_phi_12@v.e[i]/2 -self.g*inv_phi_12@np.sqrt((v.e[i]*v.e[i]/4) +(delta_e*delta_e/2))
+                        g_u = (np.eye(2)*self.g)
+                        g_l = (np.eye(3)*self.g)
+                        lamb_u = self.lamb[0:2,0:2]
+                        lamb_l = self.lamb[2:5,2:5]
+                        tmp = lin.pinv(self.H) @ (error - (g_u + lamb_u)@v.e[i] + g_u@lamb_u@v.e2[i])
+                        k_u = np.reshape(tmp,(5,1))@lin.pinv(np.reshape(error,(2,1)))
+
+                        k_l = np.reshape(phi_22@inv_phi_12@error -inv_phi_12@error@(g_l+lamb_l) + (inv_phi_12@v.e2[i]@g_l@lamb_l),(3,1))@lin.pinv(np.reshape((phi_22@inv_phi_12@error),(3,1)))
 
 
-
-
-                        K = np.vstack((k_u,k_l))
+                        #K = np.array([[k_u[0],k_u[1],k_l[0],k_l[1],k_l[2]]]).transpose() @ lin.pinv(error)
+                        #K = np.array([[k_u[0],k_u[1],k_l[0],k_l[1],k_l[2]]]).transpose() @ lin.pinv(np.reshape(error,(2,1)))
+                        k_l = np.delete(k_l, 2, 1)
+                        k_u[2] = k_l[0]
+                        k_u[3] = k_l[1]
+                        k_u[4] = k_l[2]
+                        K = k_u
+                        #K = np.vstack((k_u, k_l))
                         x_po = v.m[i] + K @ error
 
                         #S_k = self.H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ self.H_1.T + self.R
                         S_k = self.H @ v.P[i] @ self.H.T + self.R
                         P_kpo = v.P[i] - K @ self.H @ v.P[i] - v.P[i] @ self.H.T @ K.T + K @ S_k @ K.T
+                        #P_kpo = (np.eye(5)-K@self.H) @v.P[i] @ (np.eye(5)-K@self.H).transpose() + K@self.R@K.transpose()
                         # try:
                         #     P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
                         # except:
@@ -451,18 +465,22 @@ class GmphdFilter_EKF_sosvsf:
         m = [v.m[i] for i in I]
         P = [v.P[i] for i in I]
         e = [v.e[i] for i in I]
+        e2 = [v.e2[i] for i in I]
 
 
-        v = GaussianMixture(w, m, P,e)
+        v = GaussianMixture(w, m, P,e,e2)
         I = (np.array(v.w) > self.T).nonzero()[0].tolist()
         invP = get_matrices_inverses(v.P)
         vw = np.array(v.w)
         vm = np.array(v.m)
         ve = np.array(v.e)
+        ve2 = np.array(v.e2)
+
         w = []
         m = []
         P = []
         e = []
+        e2=[]
         while len(I) > 0:
             j = I[0]
             for i in I:
@@ -476,6 +494,7 @@ class GmphdFilter_EKF_sosvsf:
             m_new = np.sum((vw[L] * vm[L].T).T, axis=0) / w_new
             P_new = np.zeros((m_new.shape[0], m_new.shape[0]))
             e_new = np.sum(ve[L],0) / w_new
+            e2_new = np.sum(ve2[L],0) / w_new
             #e_new = np.max(ve[L],0)
             for i in L:
                 P_new += vw[i] * (v.P[i] + np.outer(m_new - vm[i], m_new - vm[i]))
@@ -484,6 +503,7 @@ class GmphdFilter_EKF_sosvsf:
             m.append(m_new)
             P.append(P_new)
             e.append(e_new)
+            e2.append(e2_new)
             I = [i for i in I if i not in L]
 
         if len(w) > self.Jmax:
@@ -492,8 +512,9 @@ class GmphdFilter_EKF_sosvsf:
             m = [m[i] for i in L]
             P = [P[i] for i in L]
             e = [e[i] for i in L]
+            e2 = [e2[i] for i in L]
 
-        return GaussianMixture(w, m, P, e)
+        return GaussianMixture(w, m, P, e,e2)
 
     def state_estimation(self, v: GaussianMixture) -> List[np.ndarray]:
         X = []

@@ -128,11 +128,11 @@ def process_model_for_example_1_Nonlinear():
     model = {}
 
     # Sampling time, time step duration
-    T_s = 1
+    T_s = 0.5
     model['T_s'] = T_s
 
     # number of scans, number of iterations in our simulation
-    model['num_scans'] = 150
+    model['num_scans'] = int(150/T_s)
 
     # Surveillance region
     x_min = -1500
@@ -175,7 +175,8 @@ def process_model_for_example_1_Nonlinear():
                          [0,0,sin(w*T_s),cos(w*T_s),0],
                          [0,0,0,0,1]])
     model['G'] = [100.0, 100.0, 200, 200] #[100,100,200,200]
-    model['g'] = 0
+    model['g'] = 0.0
+    model['lamb'] = np.eye(5)*0.6
     model['u'] = 2
     model['l'] = 3
     # Process noise covariance matrix
@@ -218,15 +219,15 @@ def process_model_for_example_1_Nonlinear():
     model['H'] = np.zeros((2, 5))
     model['H'][:, 0:2] = np.eye(2)
     # measurement noise covariance matrix
-    sigma_v = 15  # m
+    sigma_v = 0  # m
     model['R'] = I_2 * (sigma_v ** 2)
 
     # the reference to clutter intensity function
-    model['lc'] = 50 #50
+    model['lc'] = 0 #50
     model['clutt_int_fun'] = lambda z: clutter_intensity_function(z, model['lc'], model['surveillance_region'])
 
     # pruning and merging parameters:
-    model['T'] = 1e-5
+    model['T'] = 1e-3
     model['U'] = 4.
     model['Jmax'] = 100
 
@@ -620,7 +621,7 @@ if __name__ == '__main__':
     #                                                      noise=False)
     trajectories, targets_tracks = generate_trajectories_non_linear(model_nonlinear, targets_birth_time, targets_death_time, targets_start,
                                                          target_model_time,
-                                                         noise=True)
+                                                         noise=False)
     # ==================================================================================================================
 
     # For example 2, uncomment the following code.
