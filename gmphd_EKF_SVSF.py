@@ -465,18 +465,20 @@ class GmphdFilter_EKF_svsf:
                 if (vm[i] - vm[j]) @ invP[i] @ (vm[i] - vm[j]) <= self.U:
                     L.append(i)
             w_new = np.sum(vw[L])
-            m_new = np.sum((vw[L] * vm[L].T).T, axis=0) / w_new
-            P_new = np.zeros((m_new.shape[0], m_new.shape[0]))
-            e_new = np.sum(ve[L],0) / w_new
-            #e_new = np.max(ve[L],0)
-            for i in L:
-                P_new += vw[i] * (v.P[i] + np.outer(m_new - vm[i], m_new - vm[i]))
-            P_new /= w_new
-            w.append(w_new)
-            m.append(m_new)
-            P.append(P_new)
-            e.append(e_new)
-            I = [i for i in I if i not in L]
+            try:
+                m_new = np.sum((vw[L] * vm[L].T).T, axis=0) / w_new
+                P_new = np.zeros((m_new.shape[0], m_new.shape[0]))
+                e_new = np.sum((vw[L] * ve[L].T).T, axis=0) / w_new
+                #e_new = np.max(ve[L],0)
+                for i in L:
+                    P_new += vw[i] * (v.P[i] + np.outer(m_new - vm[i], m_new - vm[i]))
+                P_new /= w_new
+                w.append(w_new)
+                m.append(m_new)
+                P.append(P_new)
+                e.append(e_new)
+            finally:
+                I = [i for i in I if i not in L]
 
         if len(w) > self.Jmax:
             L = np.array(w).argsort()[-self.Jmax:]
@@ -512,11 +514,11 @@ class GmphdFilter_EKF_svsf:
         SVSF_count = 0
         for z in Z:
             v = self.prediction(v)
-            a = time.time()
+            #a = time.time()
             v = self.correction(v, z)
-            print('correct time: ' + str(time.time() - a) + ' sec')
+            #print('correct time: ' + str(time.time() - a) + ' sec')
             v = self.pruning(v)
-            print('number of components' + str(len(v.w)))
+            #print('number of components' + str(len(v.w)))
             x = self.state_estimation(v)
             X.append(x)
         print("EKF Count:" +str(EKF_count))

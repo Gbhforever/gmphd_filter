@@ -1,4 +1,5 @@
 import math
+from cProfile import label
 
 import matplotlib.pyplot as plt
 import time
@@ -14,6 +15,7 @@ from gmphd_EKF_SVSF import *
 from gmphd_UKF_SVSF import *
 from sympy import Matrix , sin, cos
 from sympy import symbols
+import ospa
 def process_model_for_example_1():
     # This is the model for the example in "Bayesian Multiple Target Filtering Using Random Finite Sets" by Vo, Vo, Clark
     # The implementation almost analog to Matlab code provided by Vo in http://ba-tuong.vo-au.com/codes.html
@@ -207,7 +209,7 @@ def process_model_for_example_1_Nonlinear():
 
     # MEASUREMENT MODEL
     # probability of detection
-    model['p_d'] = 1
+    model['p_d'] = 0.98
 
     # measurement matrix z = Hx + v = N(z; Hx, R)
     model['H'] = np.zeros((2, 5))
@@ -625,36 +627,63 @@ if __name__ == '__main__':
     # trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,
     #                                                      targets_spw_time_brttgt_vel, noise=False)
     # ==================================================================================================================
-    Monte_carlo=1
+    Monte_carlo=100
     MSE = np.zeros((model["num_scans"],4))
-    for i in range(Monte_carlo):
+    OSPA_SVSF_array = np.zeros((model_nonlinear["num_scans"],5))
+    OSPA_EKF_array = np.zeros((model_nonlinear["num_scans"],5))
+    for i in range(max(1,Monte_carlo-1)):
     # Collections of observations for each time step
         data = generate_measurements(model_nonlinear, trajectories)
         #data = generate_measurements(model, trajectories)
-
+        print('Run:'+str(i))
     # Call of the gmphd filter for the created observations collections
         #gmphd = GmphdFilter(model)
         #gmphd = GmphdFilter_svsf(model)
         #gmphd = GmphdFilter_UKF(model_nonlinear)
-        #gmphd = GmphdFilter_EKF(model_nonlinear)
-        gmphd = GmphdFilter_EKF_svsf(model_nonlinear)
+        gmphd_EKF = GmphdFilter_EKF(model_nonlinear)
+        gmphd_SVSF = GmphdFilter_EKF_svsf(model_nonlinear)
         #gmphd = GmphdFilter_UKF_svsf(model_nonlinear)
 
         a = time.time()
-        X_collection = gmphd.filter_data(data)
-        print('Filtration time: ' + str(time.time() - a) + ' sec')
+        X_SVSF_collection = gmphd_SVSF.filter_data(data)
+        print('SVSF Filtration time: ' + str(time.time() - a) + ' sec')
 
+        a = time.time()
+        X_EKF_collection = gmphd_EKF.filter_data(data)
+        print('EKF Filtration time: ' + str(time.time() - a) + ' sec')
+
+        for j in range(np.shape(OSPA_SVSF_array)[0]):
+            op_svsf = ospa.ospa(X_SVSF_collection[j], trajectories[j], 200, 2)
+            OSPA_SVSF_array[j] = OSPA_SVSF_array[j] +op_svsf
+
+            op_ekf = ospa.ospa(X_EKF_collection[j], trajectories[j], 200, 2)
+            OSPA_EKF_array[j] = OSPA_EKF_array[j] + op_ekf
+    OSPA_SVSF_array = (1/Monte_carlo)*OSPA_SVSF_array
+    OSPA_EKF_array = (1/Monte_carlo) * OSPA_EKF_array
     # Plot the results of filtration saved in X_collection file
         #MSE = MSE + calculate_MSE(X_collection,trajectories,model["num_scans"])
-    MSE = np.sqrt(MSE/Monte_carlo)
-    MSE = MSE[~np.all(MSE==0,axis=1)]
-    #MSE = np.delete(MSE,0,axis=0)
-    x = np.linspace(0,len(MSE),len(MSE))
-    plt.plot(x,MSE[:,0],c='r')
-    plt.plot(x, MSE[:, 1],c='g')
-    plt.plot(x, MSE[:, 2],c='b')
-    plt.plot(x, MSE[:, 3],c='k')
-    plt.show()
+    t = np.linspace(0, len(OSPA_SVSF_array), len(OSPA_SVSF_array))
+    plt.figure()
+    plt.title("OSAP Score, 10MC run")
+    plt.plot(t, OSPA_SVSF_array,c='r',label="Combined Strategy")
+    plt.plot(t, OSPA_EKF_array, c='g',label="EKF")
+    # plt.plot(t, OSPA_SVSF_array, c='r')
+    # plt.plot(t, OSPA_EKF_array, c='g')
+    plt.xlabel("time")
+    plt.ylabel('OSAP')
+    handles, labels = plt.gca().get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    plt.legend(by_label.values(), by_label.keys())
+    #plt.legend(["Combined Strategy",'EKF'])
+    # MSE = np.sqrt(MSE/Monte_carlo)
+    # MSE = MSE[~np.all(MSE==0,axis=1)]
+    # #MSE = np.delete(MSE,0,axis=0)
+    # x = np.linspace(0,len(MSE),len(MSE))
+    # plt.plot(x,MSE[:,0],c='r')
+    # plt.plot(x, MSE[:, 1],c='g')
+    # plt.plot(x, MSE[:, 2],c='b')
+    # plt.plot(x, MSE[:, 3],c='k')
+    # plt.show()
     # region Plot functions
     tracks_plot = true_trajectory_tracks_plots(targets_birth_time, targets_tracks, model['T_s'])
     plt.figure()
@@ -672,7 +701,7 @@ if __name__ == '__main__':
 
     # Plot measurements, true trajectories and estimations
     meas_time, meas_x, meas_y = extract_axis_for_plot(data, model['T_s'])
-    estim_time, estim_x, estim_y = extract_axis_for_plot(X_collection, model['T_s'])
+    estim_time, estim_x, estim_y = extract_axis_for_plot(X_SVSF_collection, model['T_s'])
     plt.figure()
     plt.plot(meas_time, meas_x, 'x', c='C0')
     for key in tracks_plot:
@@ -702,7 +731,7 @@ if __name__ == '__main__':
 
     for x_set in trajectories:
         num_targets_truth.append(len(x_set))
-    for x_set in X_collection:
+    for x_set in X_SVSF_collection:
         num_targets_estimated.append(len(x_set))
 
     plt.figure()
