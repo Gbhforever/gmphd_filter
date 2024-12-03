@@ -13,9 +13,14 @@ from gmphd_UKF import *
 from gmphd_svsf import *
 from gmphd_EKF_SVSF import *
 from gmphd_UKF_SVSF import *
+from gmphd_EKF_SVSF_SG import*
 from sympy import Matrix , sin, cos
 from sympy import symbols
 import ospa
+import multiprocessing as mp
+import pandas as pd
+import os
+os.environ["PYTHON_GIL"] = "0"
 def process_model_for_example_1():
     # This is the model for the example in "Bayesian Multiple Target Filtering Using Random Finite Sets" by Vo, Vo, Clark
     # The implementation almost analog to Matlab code provided by Vo in http://ba-tuong.vo-au.com/codes.html
@@ -627,12 +632,17 @@ if __name__ == '__main__':
     # trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,
     #                                                      targets_spw_time_brttgt_vel, noise=False)
     # ==================================================================================================================
-    Monte_carlo=100
+    Monte_carlo=1
     MSE = np.zeros((model["num_scans"],4))
-    OSPA_SVSF_array = np.zeros((model_nonlinear["num_scans"],5))
+    OSPA_EKF_SVSF_array = np.zeros((model_nonlinear["num_scans"],5))
+    OSPA_EKF_SVSF_SG_array = np.zeros((model_nonlinear["num_scans"],5))
     OSPA_EKF_array = np.zeros((model_nonlinear["num_scans"],5))
-    for i in range(max(1,Monte_carlo-1)):
+    EKF_Collection = mp.Queue()
+    EKF_SVSF_Collection = mp.Queue()
+    EKF_SVSF_SG_Collection = mp.Queue()
+    for i in range(max(1,Monte_carlo)):
     # Collections of observations for each time step
+        a = time.time()
         data = generate_measurements(model_nonlinear, trajectories)
         #data = generate_measurements(model, trajectories)
         print('Run:'+str(i))
@@ -641,32 +651,64 @@ if __name__ == '__main__':
         #gmphd = GmphdFilter_svsf(model)
         #gmphd = GmphdFilter_UKF(model_nonlinear)
         gmphd_EKF = GmphdFilter_EKF(model_nonlinear)
-        gmphd_SVSF = GmphdFilter_EKF_svsf(model_nonlinear)
+        gmphd_EKF_SVSF = GmphdFilter_EKF_svsf(model_nonlinear)#GmphdFilter_EKF_svsf(model_nonlinear)
+        gmphd_EKF_SVSF_SG = GmphdFilter_EKF_svsf_sg(model_nonlinear)
         #gmphd = GmphdFilter_UKF_svsf(model_nonlinear)
 
-        a = time.time()
-        X_SVSF_collection = gmphd_SVSF.filter_data(data)
-        print('SVSF Filtration time: ' + str(time.time() - a) + ' sec')
+        #a = time.time()
+        t1 = mp.Process(target=gmphd_EKF_SVSF.filter_data,args=(data,EKF_SVSF_Collection))
+        t1.start()
+        #print('EKF SVSF Filtration time: ' + str(time.time() - a) + ' sec')
 
-        a = time.time()
-        X_EKF_collection = gmphd_EKF.filter_data(data)
-        print('EKF Filtration time: ' + str(time.time() - a) + ' sec')
+        #a = time.time()
+        t2 = mp.Process(target=gmphd_EKF_SVSF_SG.filter_data,args=(data,EKF_SVSF_SG_Collection))
+        #t2.start()
+        #print('EKF Filtration time: ' + str(time.time() - a) + ' sec')
 
-        for j in range(np.shape(OSPA_SVSF_array)[0]):
-            op_svsf = ospa.ospa(X_SVSF_collection[j], trajectories[j], 200, 2)
-            OSPA_SVSF_array[j] = OSPA_SVSF_array[j] +op_svsf
+        #a = time.time()
+        t3 = mp.Process(target=gmphd_EKF.filter_data, args=(data, EKF_Collection))
+        #t3.start()
+        #print('EKF SVSF SG Filtration time: ' + str(time.time() - a) + ' sec')
 
-            op_ekf = ospa.ospa(X_EKF_collection[j], trajectories[j], 200, 2)
-            OSPA_EKF_array[j] = OSPA_EKF_array[j] + op_ekf
-    OSPA_SVSF_array = (1/Monte_carlo)*OSPA_SVSF_array
+        #EKF_X = EKF_Collection.get()
+        #EKF_SVSF_X = EKF_SVSF_Collection.get()
+        EKF_SVSF_SG_X = EKF_SVSF_SG_Collection.get()
+        t1.join()
+        #t2.join()
+        #t3.join()
+
+        for j in range(np.shape(OSPA_EKF_SVSF_array)[0]):
+
+            #print("OSPA RUN:"+str(j))
+            #op_ekf_svsf = ospa.ospa(EKF_SVSF_X[j], trajectories[j], 200, 2)
+            #OSPA_EKF_SVSF_array[j] = OSPA_EKF_SVSF_array[j] +op_ekf_svsf
+
+            op_ekf_svsf_sg = ospa.ospa(EKF_SVSF_SG_X[j], trajectories[j], 200, 2)
+            OSPA_EKF_SVSF_SG_array[j] = OSPA_EKF_SVSF_SG_array[j] + op_ekf_svsf_sg
+
+            #op_ekf = ospa.ospa(EKF_X[j], trajectories[j], 200, 2)
+            #OSPA_EKF_array[j] = OSPA_EKF_array[j] + op_ekf
+        print('MonteCarlo Time' + str(time.time() - a) + ' sec')
+
+    OSPA_EKF_SVSF_SG_array = (1 / Monte_carlo) * OSPA_EKF_SVSF_SG_array
+    OSPA_EKF_SVSF_array = (1/Monte_carlo)*OSPA_EKF_SVSF_array
     OSPA_EKF_array = (1/Monte_carlo) * OSPA_EKF_array
+    df1 = pd.DataFrame(OSPA_EKF_SVSF_SG_array)
+    df1.to_csv("./csv/OSPA_EKF_SVSF_SG"+time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())+"_MC:"+str(Monte_carlo)+".csv")
+
+    df2 = pd.DataFrame(OSPA_EKF_SVSF_array)
+    df2.to_csv("./csv/OSPA_EKF_SVSF" + time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + "_MC:" + str(Monte_carlo) + ".csv")
+
+    df3 = pd.DataFrame(OSPA_EKF_array)
+    df3.to_csv("./csv/OSPA_EKF" + time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + "_MC:" + str(Monte_carlo) + ".csv")
     # Plot the results of filtration saved in X_collection file
         #MSE = MSE + calculate_MSE(X_collection,trajectories,model["num_scans"])
-    t = np.linspace(0, len(OSPA_SVSF_array), len(OSPA_SVSF_array))
+    t = np.linspace(0, len(OSPA_EKF_SVSF_array), len(OSPA_EKF_SVSF_array))
     plt.figure()
-    plt.title("OSAP Score, 10MC run")
-    plt.plot(t, OSPA_SVSF_array,c='r',label="Combined Strategy")
-    plt.plot(t, OSPA_EKF_array, c='g',label="EKF")
+    plt.title("OSAP Score"+ str(Monte_carlo) + "Run")
+    plt.plot(t, OSPA_EKF_SVSF_array,c='b',label="Combined Strategy")
+    plt.plot(t, OSPA_EKF_SVSF_SG_array, c='g',label="Combined Strategy Set Gain")
+    plt.plot(t, OSPA_EKF_array, c='y',label="EKF")
     # plt.plot(t, OSPA_SVSF_array, c='r')
     # plt.plot(t, OSPA_EKF_array, c='g')
     plt.xlabel("time")
@@ -701,7 +743,7 @@ if __name__ == '__main__':
 
     # Plot measurements, true trajectories and estimations
     meas_time, meas_x, meas_y = extract_axis_for_plot(data, model['T_s'])
-    estim_time, estim_x, estim_y = extract_axis_for_plot(X_SVSF_collection, model['T_s'])
+    estim_time, estim_x, estim_y = extract_axis_for_plot(EKF_SVSF_SG_X, model['T_s'])
     plt.figure()
     plt.plot(meas_time, meas_x, 'x', c='C0')
     for key in tracks_plot:
@@ -731,7 +773,7 @@ if __name__ == '__main__':
 
     for x_set in trajectories:
         num_targets_truth.append(len(x_set))
-    for x_set in X_SVSF_collection:
+    for x_set in EKF_SVSF_SG_X:
         num_targets_estimated.append(len(x_set))
 
     plt.figure()

@@ -376,7 +376,9 @@ class GmphdFilter_EKF_svsf:
         P_orig = v.copy().P
         e = v_copy.e
         #a = time.time()
+
         for z in Z:
+            gated = 0
             values = v_residual.mixture_component_values_list(z)
             normalization_factor = np.sum(values) + self.clutter_density_func(z)
             for i in range(len(v_residual.w)):
@@ -430,6 +432,12 @@ class GmphdFilter_EKF_svsf:
                         #print("using EKF")
                         global EKF_count
                         EKF_count = EKF_count+1
+                else:
+                    gated = gated+1
+            p_gated = gated / np.shape(Z)[0] * 100
+            print("percent of Z gated:" + str(gated))
+
+            #print(' SVSF gain time: ' + str(time.time() - a) + ' sec')
         #print('svsf time: ' + str(time.time() - a) + ' sec')
 
         return GaussianMixture(weight, m, P,e)
@@ -497,7 +505,7 @@ class GmphdFilter_EKF_svsf:
                     X.append(v.m[i])
         return X
 
-    def filter_data(self, Z: List[List[np.ndarray]]) -> List[List[np.ndarray]]:
+    def filter_data(self, Z: List[List[np.ndarray]],Queue) -> List[List[np.ndarray]]:
         """
         Given the list of collections of measurements for each time step, perform filtering and return the
         estimated sets of tracks for each step.
@@ -512,15 +520,19 @@ class GmphdFilter_EKF_svsf:
         global SVSF_count
         EKF_count = 0
         SVSF_count = 0
+        print("Running SVSF_EKF")
+        a = time.time()
         for z in Z:
             v = self.prediction(v)
             #a = time.time()
             v = self.correction(v, z)
-            #print('correct time: ' + str(time.time() - a) + ' sec')
+            #print(' SVSF correct time: ' + str(time.time() - a) + ' sec')
             v = self.pruning(v)
             #print('number of components' + str(len(v.w)))
             x = self.state_estimation(v)
             X.append(x)
         print("EKF Count:" +str(EKF_count))
         print("SVSF Count:" + str(SVSF_count))
+        Queue.put(X)
+        print(' SVSF filter time: ' + str(time.time() - a) + ' sec')
         return X

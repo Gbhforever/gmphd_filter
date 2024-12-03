@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import numpy.linalg as lin
 from typing import List, Dict, Any
@@ -6,7 +8,9 @@ global EKF_count
 global SVSF_count
 import scipy.special
 import time
-
+import queue
+#import warnings
+#warnings.simplefilter('error')
 def multivariate_gaussian(x: np.ndarray, m: np.ndarray, P: np.ndarray) -> float:
     """
     Multivatiate Gaussian Distribution
@@ -231,72 +235,7 @@ def linear_update(v: GaussianMixture, p, F: np.ndarray, Q: np.ndarray):
     for cov_matrix in v.P:
         P.append(Q + F @ cov_matrix @ F.T)
     return GaussianMixture(w, m, P)
-
-def unscented_transform(u:GaussianMixture,Q:np.ndarray,R:np.ndarray):
-    sigma_points=[]
-    W_m = []
-    W_c =[]
-    a = 1*10**-3
-    B = 2
-    k = 0.1
-    if not (len(u.w)==0):
-        #L_s = np.shape(u.m[0])[0]
-        #L_s=12
-        #lamb = a**2 *(L_s+k)-L_s
-
-        D = np.shape(u.m)[1]
-        P_size = np.shape(u.P[0])[0]
-        Q_size = np.shape(Q)[0]
-        R_size = np.shape(R)[0]
-        m_size = np.shape(u.m[0])[0]
-        D_total = P_size+Q_size+R_size
-        P_z = np.zeros((D_total-P_size,P_size))
-        Q_z_1 = np.zeros((P_size,Q_size))
-        Q_z_2 = np.zeros((R_size,Q_size))
-        R_z = np.zeros((D_total-R_size,R_size))
-
-        L_s = D_total
-        lamb = a ** 2 * (L_s + k) - L_s
-
-        for i in range(len(u.w)):
-            P_l = np.vstack((u.P[i],P_z))
-            Q_l = np.vstack((Q_z_1,Q,Q_z_2))
-            R_l = np.vstack((R_z,R))
-            C = np.hstack((P_l,Q_l,R_l))
-            #L = np.linalg.cholesky(D_total*C)
-            L = np.linalg.cholesky((lamb+D_total)* C)
-            #L = np.linalg.cholesky((L_s+lamb)*u.P[i])
-            m = np.hstack((u.m[i],np.zeros((1,D_total-m_size))[0])).transpose()
-            u_s = []
-            u_s.append(m)
-            w_m =[]
-            w_c= []
-            w_m_0 = lamb/(L_s+lamb)
-            #w_m_0 = 1/3
-            w_c_0 = (lamb/(L_s+lamb)) + (1-a**2+B)
-            w_m.append(w_m_0)
-            w_c.append(w_c_0)
-            for j in range(P_size+Q_size+R_size):
-                x = m + L[:,j]
-                w = 1/(2*(L_s+lamb))
-                #w = (1-w_m_0)/(2*D_total)
-                w_m.append(w)
-                w_c.append(w)
-                u_s.append(x)
-            for j in range(P_size+Q_size+R_size):
-                x = m - L[:,j]
-                w = 1 / (2 * (L_s + lamb))
-                w_m.append(w)
-                w_c.append(w)
-                u_s.append(x)
-            sigma_points.append(u_s)
-            W_m.append(w_m)
-            W_c.append(w_c)
-        # for component in sigma_points:
-        #     for point in component:
-        #
-    return sigma_points,W_m,W_c
-class GmphdFilter_UKF_svsf:
+class GmphdFilter_EKF_svsf_sg:
     def __init__(self, model: Dict[str, Any]):
         """
         The Gaussian Mixture Probability Hypothesis Density filter implementation.
@@ -364,7 +303,9 @@ class GmphdFilter_UKF_svsf:
 
         self.G = model['G']
         self.g = model['g']
-
+        self.SG = 1.25 #Designer parameter for error gain
+        self.E = self.SG*np.array(self.G)[0:2]
+        self.E_inv = lin.pinv(np.diagflat(self.E))
         self.u = model['u']
         self.l = model['l']
         self.t = np.eye(np.shape(self.F)[0])
@@ -373,6 +314,7 @@ class GmphdFilter_UKF_svsf:
         #SVSF precomputed Matrices
         self.A = model['A']
         self.H_1 = lin.inv(self.H[:, 0:self.u])
+        #phi = self.t @ self.F_jacobian @ lin.inv(self.t)
         phi = self.t @ self.A @ lin.inv(self.t)
         [phi_x, phi_y] = np.shape(phi)
         self.phi_22 = phi[int(phi_x / 2):phi_x, int(phi_y / 2):phi_y]
@@ -394,9 +336,6 @@ class GmphdFilter_UKF_svsf:
                 m.append(self.F_spawn[j] @ v.m[i] + self.d_spawn[j])
                 P.append(self.Q_spawn[j] + self.F_spawn[j] @ v.P[i] @ self.F_spawn[j].T)
         return GaussianMixture(w, m, P, e)
-    def birth(self, v: GaussianMixture) -> GaussianMixture:
-        birth_copy = self.birth_GM.copy()
-        return GaussianMixture(v.w+birth_copy.w,v.m+birth_copy.m,v.P+birth_copy.P,v.e+birth_copy.e)
 
     def prediction(self, v: GaussianMixture) -> GaussianMixture:
         """
@@ -429,10 +368,36 @@ class GmphdFilter_UKF_svsf:
 
         K_EKF = []
         P_kk = []
+        K_SVSF = []
+        P_SVSF=[]
+        #a = time.time()
         for i in range(len(v_residual.w)):
+            #EKF Gain
             k = v.P[i] @ self.H.T @ invP[i]
             K_EKF.append(k)
             P_kk.append(v.P[i] - k @ self.H @ v.P[i])
+            #SVSF Gain
+            phi_12 = self.phi_12.copy()
+            phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+            phi_12 = sympy.matrix2numpy(phi_12, dtype=float)
+            inv_phi_12 = lin.pinv(phi_12)
+            phi_22 = self.phi_22.copy()
+            phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+            phi_22 = sympy.matrix2numpy(phi_22, dtype=float)
+
+            t_1 = phi_22 @ inv_phi_12 @ self.E
+            E_z = abs(self.E) + np.diagflat(np.full((self.u, 1), self.g)) @ abs(v.e[i])
+            k_u = self.H_1 @ np.diagflat((E_z))  @ self.E_inv
+
+            E_y = abs(t_1) + np.diagflat(np.full((self.l, 1), self.g)) @ abs(inv_phi_12 @ self.E)
+            k_l = np.diagflat(E_y)  @ lin.pinv(np.diagflat(t_1)) @ phi_22 @ inv_phi_12
+
+            K = np.vstack((k_u, k_l))
+            K_SVSF.append(K)
+            S_k = self.H @ v.P[i] @ self.H.T + self.R
+            P_kpo = v.P[i] - K_SVSF[i] @ self.H @ v.P[i] - v.P[i] @ self.H.T @ K_SVSF[i].T + K_SVSF[i] @ S_k @ K_SVSF[i].T
+            P_SVSF.append(P_kpo)
+        #print(' SG gain time: ' + str(time.time() - a) + ' sec')
         v_copy = v.copy()
         weight = (np.array(v_copy.w) * (1 - self.p_d)).tolist()
         m = v_copy.m
@@ -445,30 +410,25 @@ class GmphdFilter_UKF_svsf:
             normalization_factor = np.sum(values) + self.clutter_density_func(z)
             for i in range(len(v_residual.w)):
                 error = z - self.H @ v.m[i]
-                sat = v.saturate(error,self.G,[0,self.u])
-                weigh =  values[i]/normalization_factor
+                error = error + 1*10**-12
+                #sat = v.saturate(error,self.G,[0,self.u])
+                if(values[i]==0):
+                    weigh = 0
+                else:
+                    weigh = values[i]/normalization_factor
                 if(weigh >= self.T):
-                    if (np.any(np.abs(sat)>=1.)):
-                        phi_12 = self.phi_12
-                        phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
-                        phi_12 = sympy.matrix2numpy(phi_12, dtype=float)
-                        inv_phi_12 = lin.pinv(phi_12)
-                        phi_22 = self.phi_22
-                        phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
-                        phi_22 = sympy.matrix2numpy(phi_22, dtype=float)
+                    if (np.any(np.abs(error)-self.E>=1.)):#(np.any(np.abs(sat)>=1.)):
 
-                        t_1 = phi_22 @ inv_phi_12 @ error
-                        E_z = abs(error) + np.diagflat(np.full((self.u,1),self.g)) @ abs(v.e[i])
-                        k_u = self.H_1 @ np.diagflat(E_z * v.saturate(error,self.G,[0,self.u-1])) @ lin.pinv(np.diagflat(error))
 
-                        E_y = abs(t_1) + np.diagflat(np.full((self.l,1),self.g)) @ abs(inv_phi_12@error)
-                        k_l = np.diagflat(E_y) * v.saturate(t_1,self.G,[self.u-1,np.shape(self.G)[0]]) @ lin.pinv(np.diagflat(t_1))@phi_22@inv_phi_12
+                        x_po = v.m[i] + K_SVSF[i] @ error
 
-                        K = np.vstack((k_u,k_l))
-                        x_po = v.m[i] + K @ error
-
-                        S_k = self.H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ self.H_1.T + self.R
-                        P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
+                        #S_k = self.H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ self.H_1.T + self.R
+                        #S_k = self.H @ v.P[i] @ self.H.T + self.R
+                        #P_kpo = v.P[i] - K_SVSF[i] @ self.H @ v.P[i] - v.P[i] @ self.H.T @ K_SVSF[i].T + K_SVSF[i] @ S_k @ K_SVSF[i].T
+                        # try:
+                        #     P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
+                        # except:
+                        #     bk=0
                         e_kpo = z - self.H @ x_po
                         weight.append(weigh)
                         m.append(x_po)
@@ -488,136 +448,7 @@ class GmphdFilter_UKF_svsf:
         #print('svsf time: ' + str(time.time() - a) + ' sec')
 
         return GaussianMixture(weight, m, P,e)
-    def unscented_predict_update(self, v: GaussianMixture, Z: List[np.ndarray]) -> GaussianMixture:
-        x, y, xd, yd, w = sympy.symbols("x,y,xd,yd,w")
-        #a = time.time()
-        sigma_points,W_m,W_c = unscented_transform(v,self.Q,self.R)
-        #print('sigma time: ' + str(time.time() - a) + ' sec')
-        UKF_K=[]
-        P_kk=[]
-        M_kpr=[]
-        Z_kpr = []
-        S_kpr=[]
-        ptime = 0
-        pretime =0
-        for i,target in enumerate(sigma_points):
-            x_l=[]
-            z_l=[]
-            #a = time.time()
-            for points in target:
-                X = points[0:5]
-                V = points[5:10]
-                E = points[10:12]
-                x_pred = self.F.subs([(x, X[0]), (y, X[1]), (xd, X[2]), (yd, X[3]), (w, X[4])])
-                x_pred = sympy.matrix2numpy(x_pred).flatten() + V
-                z_pred = self.H @ x_pred +E
-                x_l.append(x_pred)
-                z_l.append(z_pred)
-            #ptime = ptime + time.time() - a
-            m_kpr = np.zeros((np.shape(x_l[0])[0]))
-            z_kpr =np.zeros((np.shape(z_l[0])[0]))
-            for j in range(len(x_l)):
-                #m_kpr = m_kpr + W_m[i][j] * sympy.matrix2numpy(x_l[j])
-                #z_kpr = z_kpr + W_m[i][j] * sympy.matrix2numpy(z_l[j])
-                m_kpr = m_kpr + W_m[i][j] * x_l[j]
-                z_kpr = z_kpr + W_m[i][j] * z_l[j]
-            M_kpr.append(m_kpr.astype(float))
-            Z_kpr.append(z_kpr.astype(float))
-            P_kpr = np.zeros((np.shape(x_l[0])[0],np.shape(x_l[0])[0]))
-            s_kpr = np.zeros((np.shape(z_l[0])[0],np.shape(z_l[0])[0]),dtype=float)
-            G_k = np.zeros((np.shape(x_l[0])[0], np.shape(z_l[0])[0]))
-            # for j in range(len(x_l)):
-            #     P_kpr = P_kpr + W_c[i][j] * (sympy.matrix2numpy(x_l[j])-m_kpr) @ (
-            #             sympy.matrix2numpy(x_l[j])-m_kpr).transpose()
-            #     s_kpr = s_kpr + W_c[i][j] * (sympy.matrix2numpy(z_l[j]) - z_kpr) @ (
-            #                 sympy.matrix2numpy(z_l[j]) - z_kpr).transpose()
-            #     G_k = G_k + W_c[i][j] * (sympy.matrix2numpy(x_l[j]) - m_kpr) @ (
-            #             sympy.matrix2numpy(z_l[j]) - z_kpr).transpose()
-            #a = time.time()
-            for j in range(len(x_l)):
-                # xd = (x_l[j]-m_kpr)
-                # zd = (z_l[j] - z_kpr)
-                # P_kpr = P_kpr + W_c[i][j] * np.outer(xd,xd.transpose())
-                # s_kpr = s_kpr + W_c[i][j] * np.outer(zd,zd.transpose())
-                # G_k = G_k + W_c[i][j] * np.outer(xd,zd.transpose())
-                P_kpr = P_kpr + W_c[i][j] * np.outer((x_l[j]-m_kpr),(
-                        x_l[j]-m_kpr).transpose())
-                s_kpr = s_kpr + W_c[i][j] * np.outer((z_l[j] - z_kpr) ,(
-                            z_l[j] - z_kpr).transpose())
-                G_k = G_k + W_c[i][j] * np.outer((x_l[j] - m_kpr) , (
-                        z_l[j] - z_kpr).transpose())
-            #pretime = pretime + time.time() - a
-            UKF_K.append((G_k @ np.linalg.inv(s_kpr.astype(float))).astype(float))
-            P_kpr = 0.5*P_kpr + 0.5*P_kpr.transpose()
-            P_kpr = P_kpr + 1*10**-8 * np.eye(np.shape(x_l[0])[0])
-            p_tmp = P_kpr - G_k @ np.linalg.inv(s_kpr.astype(float)) @ G_k.transpose()
-            #p_tmp = np.around(p_tmp.astype(np.double),10)
-            P_kk.append(p_tmp.astype(float))
-            S_kpr.append(s_kpr)
-        #print("pretime is " + str(pretime) + "sec")
-        #print("pointtime is " + str(ptime) + "sec")
-        v_copy = v.copy()
-        weight = (np.array(v_copy.w) * (1 - self.p_d)).tolist()
-        m = v_copy.m
-        P = v_copy.P
-        e = v_copy.e
-        for j, z in enumerate(Z):
-            Values = []
-            for i in range(len(v.w)):
-                values = self.p_d * v_copy.w[i] * multivariate_gaussian(z,Z_kpr[i].astype(float),S_kpr[i].astype(float))
-                Values.append(values)
-            normalization_factor = np.sum(Values) + self.clutter_density_func(z)
-            for i in range(len(v.w)):
-                error = z - self.H @ v.m[i]
-                sat = v.saturate(error, self.G, [0, self.u])
-                if (Values[i] == 0):
-                    weigh = 0
-                else:
-                    weigh = Values[i] / normalization_factor
-                if (weigh >= self.T):
-                    if (np.any(np.abs(sat)>=1.)):
-                        phi_12 = self.phi_12.copy()
-                        phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
-                        phi_12 = sympy.matrix2numpy(phi_12, dtype=float)
-                        inv_phi_12 = lin.pinv(phi_12)
-                        phi_22 = self.phi_22.copy()
-                        phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
-                        phi_22 = sympy.matrix2numpy(phi_22, dtype=float)
 
-                        t_1 = phi_22 @ inv_phi_12 @ error
-                        E_z = abs(error) + np.diagflat(np.full((self.u, 1), self.g)) @ abs(v.e[i])
-                        k_u = self.H_1 @ np.diagflat((E_z) * v.saturate(error, self.G, [0, self.u - 1])) @ lin.pinv(
-                            np.diagflat(error))
-
-                        E_y = abs(t_1) + np.diagflat(np.full((self.l, 1), self.g)) @ abs(inv_phi_12 @ error)
-                        k_l = np.diagflat(E_y) * v.saturate(t_1, self.G, [self.u - 1, np.shape(self.G)[0]]) @ lin.pinv(
-                            np.diagflat(t_1)) @ phi_22 @ inv_phi_12
-
-                        K = np.vstack((k_u, k_l))
-                        x_po = v.m[i] + K @ error
-
-                        # S_k = self.H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ self.H_1.T + self.R
-                        S_k = self.H @ v.P[i] @ self.H.T + self.R
-                        P_kpo = v.P[i] - K @ self.H @ v.P[i] - v.P[i] @ self.H.T @ K.T + K @ S_k @ K.T
-                        # try:
-                        #     P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
-                        # except:
-                        #     bk=0
-                        e_kpo = z - self.H @ x_po
-                        weight.append(weigh)
-                        m.append(x_po)
-                        P.append(P_kpo)
-                        e.append(e_kpo)
-                        # print("using svsf")
-                        global SVSF_count
-                        SVSF_count = SVSF_count + 1
-                    else:
-                        weight.append(Values[i] / normalization_factor)
-                        m.append(M_kpr[i].flatten() + UKF_K[i] @ (z - Z_kpr[i].flatten()))
-                        e.append(z - self.H @ (M_kpr[i].flatten() + UKF_K[i] @ (z - Z_kpr[i].flatten())))
-                        P.append(P_kk[i].copy())
-
-        return GaussianMixture(weight, m, P,e)
     def pruning(self, v: GaussianMixture) -> GaussianMixture:
         """
         See https://ieeexplore.ieee.org/document/7202905 for details
@@ -649,18 +480,20 @@ class GmphdFilter_UKF_svsf:
                 if (vm[i] - vm[j]) @ invP[i] @ (vm[i] - vm[j]) <= self.U:
                     L.append(i)
             w_new = np.sum(vw[L])
-            m_new = np.sum((vw[L] * vm[L].T).T, axis=0) / w_new
-            P_new = np.zeros((m_new.shape[0], m_new.shape[0]))
-            #e_new = np.sum(ve[L],0) / w_new
-            e_new = np.max(ve[L],0)
-            for i in L:
-                P_new += (vw[i] * (v.P[i] + np.outer(m_new - vm[i], m_new - vm[i]))).astype(float)
-            P_new /= w_new
-            w.append(w_new)
-            m.append(m_new)
-            P.append(P_new)
-            e.append(e_new)
-            I = [i for i in I if i not in L]
+            try:
+                m_new = np.sum((vw[L] * vm[L].T).T, axis=0) / w_new
+                P_new = np.zeros((m_new.shape[0], m_new.shape[0]))
+                e_new = np.sum((vw[L] * ve[L].T).T, axis=0) / w_new
+                #e_new = np.max(ve[L],0)
+                for i in L:
+                    P_new += vw[i] * (v.P[i] + np.outer(m_new - vm[i], m_new - vm[i]))
+                P_new /= w_new
+                w.append(w_new)
+                m.append(m_new)
+                P.append(P_new)
+                e.append(e_new)
+            finally:
+                I = [i for i in I if i not in L]
 
         if len(w) > self.Jmax:
             L = np.array(w).argsort()[-self.Jmax:]
@@ -679,7 +512,7 @@ class GmphdFilter_UKF_svsf:
                     X.append(v.m[i])
         return X
 
-    def filter_data(self, Z: List[List[np.ndarray]]) -> List[List[np.ndarray]]:
+    def filter_data(self, Z: List[List[np.ndarray]],Queue) -> List[List[np.ndarray]]:
         """
         Given the list of collections of measurements for each time step, perform filtering and return the
         estimated sets of tracks for each step.
@@ -694,15 +527,19 @@ class GmphdFilter_UKF_svsf:
         global SVSF_count
         EKF_count = 0
         SVSF_count = 0
+        print("Running SVSF_SG")
+        a = time.time()
         for z in Z:
-            v = self.birth(v)
-            a = time.time()
-            v = self.unscented_predict_update(v, z)
-            print('correct time: ' + str(time.time() - a) + ' sec')
+            v = self.prediction(v)
+            #a = time.time()
+            v = self.correction(v, z)
+            #print(' SG correct time: ' + str(time.time() - a) + ' sec')
             v = self.pruning(v)
-            print('number of components' + str(len(v.w)))
+            #print('number of components' + str(len(v.w)))
             x = self.state_estimation(v)
             X.append(x)
         print("EKF Count:" +str(EKF_count))
         print("SVSF Count:" + str(SVSF_count))
+        Queue.put(X)
+        print(' SG filter time: ' + str(time.time() - a) + ' sec')
         return X

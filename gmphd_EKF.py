@@ -2,6 +2,7 @@ import numpy as np
 import numpy.linalg as lin
 from typing import List, Dict, Any
 import sympy
+import time
 import scipy.special
 
 def multivariate_gaussian(x: np.ndarray, m: np.ndarray, P: np.ndarray) -> float:
@@ -365,7 +366,7 @@ class GmphdFilter_EKF:
                     X.append(v.m[i])
         return X
 
-    def filter_data(self, Z: List[List[np.ndarray]]) -> List[List[np.ndarray]]:
+    def filter_data(self, Z: List[List[np.ndarray]],Queue) -> List[List[np.ndarray]]:
         """
         Given the list of collections of measurements for each time step, perform filtering and return the
         estimated sets of tracks for each step.
@@ -376,10 +377,16 @@ class GmphdFilter_EKF:
         """
         X = []
         v = GaussianMixture([], [], [])
+        print("Running EKF")
         for z in Z:
             v = self.prediction(v)
+            a = time.time()
             v = self.correction(v, z)
+            print(' EKF correct time: ' + str(time.time() - a) + ' sec')
             v = self.pruning(v)
+            print('number of components' + str(len(v.w)))
             x = self.state_estimation(v)
             X.append(x)
+        print("EKF Done")
+        Queue.put(X)
         return X
