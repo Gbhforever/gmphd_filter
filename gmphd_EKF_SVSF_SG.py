@@ -209,12 +209,12 @@ def non_linear_predict(v: GaussianMixture, p, F: sympy.Matrix, Q: np.ndarray,F_j
     for weight in v.w:
         w_s.append(weight * p)
     for mean in v.m:
-        F_c = F.subs([(x, mean[0]), (y, mean[1]), (xd, mean[2]), (yd, mean[3]), (w, mean[4])])
+        F_c = F.xreplace({x:mean[0],y:mean[1],xd:mean[2],yd:mean[3],w:mean[4]})
         F_c = sympy.matrix2numpy(F_c, dtype=float)
         F_c = np.hstack(F_c)
         m.append(F_c)
     for cov_matrix in v.P:
-        F_j = F_jacobian.subs([(x, v.m[index][0]), (y, v.m[index][1]), (xd, v.m[index][2]), (yd, v.m[index][3]), (w, v.m[index][4])])
+        F_j = F_jacobian.xreplace({x:v.m[index][0],y:v.m[index][1],xd:v.m[index][2],yd:v.m[index][3],w:v.m[index][4]})
         F_j = sympy.matrix2numpy(F_j, dtype=float)
         F_j = np.vstack(F_j)
         P.append(Q + F_j @ cov_matrix @ F_j.T)
@@ -303,7 +303,7 @@ class GmphdFilter_EKF_svsf_sg:
 
         self.G = model['G']
         self.g = model['g']
-        self.SG = 1.25 #Designer parameter for error gain
+        self.SG = 1 #Designer parameter for error gain
         self.E = self.SG*np.array(self.G)[0:2]
         self.E_inv = lin.pinv(np.diagflat(self.E))
         self.u = model['u']
@@ -365,24 +365,30 @@ class GmphdFilter_EKF_svsf_sg:
         detP = get_matrices_determinants(v_residual.P)
         invP = get_matrices_inverses(v_residual.P)
         v_residual.set_covariance_determinant_and_inverse_list(detP, invP)
-
+        counter =0
         K_EKF = []
         P_kk = []
         K_SVSF = []
         P_SVSF=[]
-        #a = time.time()
+        a = time.time()
+
         for i in range(len(v_residual.w)):
             #EKF Gain
+            #a = time.time()
             k = v.P[i] @ self.H.T @ invP[i]
             K_EKF.append(k)
             P_kk.append(v.P[i] - k @ self.H @ v.P[i])
+            #print(' kf gain time: ' + str(time.time() - a) + ' sec')
             #SVSF Gain
+            #a = time.time()
             phi_12 = self.phi_12.copy()
-            phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+            #phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+            phi_12 = phi_12.xreplace({xd: v.m[i][2], yd: v.m[i][3], w: v.m[i][4]})
             phi_12 = sympy.matrix2numpy(phi_12, dtype=float)
             inv_phi_12 = lin.pinv(phi_12)
             phi_22 = self.phi_22.copy()
-            phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+            #phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+            phi_22 = phi_22.xreplace({xd: v.m[i][2], yd: v.m[i][3], w: v.m[i][4]})
             phi_22 = sympy.matrix2numpy(phi_22, dtype=float)
 
             t_1 = phi_22 @ inv_phi_12 @ self.E
@@ -397,6 +403,11 @@ class GmphdFilter_EKF_svsf_sg:
             S_k = self.H @ v.P[i] @ self.H.T + self.R
             P_kpo = v.P[i] - K_SVSF[i] @ self.H @ v.P[i] - v.P[i] @ self.H.T @ K_SVSF[i].T + K_SVSF[i] @ S_k @ K_SVSF[i].T
             P_SVSF.append(P_kpo)
+            #print(' sg gain time: ' + str(time.time() - a) + ' sec')
+
+            counter = counter+1
+
+
         #print(' SG gain time: ' + str(time.time() - a) + ' sec')
         v_copy = v.copy()
         weight = (np.array(v_copy.w) * (1 - self.p_d)).tolist()
@@ -404,10 +415,10 @@ class GmphdFilter_EKF_svsf_sg:
         P = v_copy.P
         P_orig = v.copy().P
         e = v_copy.e
-        #a = time.time()
         for z in Z:
             values = v_residual.mixture_component_values_list(z)
             normalization_factor = np.sum(values) + self.clutter_density_func(z)
+            #counter = counter+1
             for i in range(len(v_residual.w)):
                 error = z - self.H @ v.m[i]
                 error = error + 1*10**-12
@@ -417,18 +428,8 @@ class GmphdFilter_EKF_svsf_sg:
                 else:
                     weigh = values[i]/normalization_factor
                 if(weigh >= self.T):
-                    if (np.any(np.abs(error)-self.E>=1.)):#(np.any(np.abs(sat)>=1.)):
-
-
-                        x_po = v.m[i] + K_SVSF[i] @ error
-
-                        #S_k = self.H_1 @ v.P[i][0:int(np.shape(v.P[i])[0]/2),0:int(np.shape(v.P[i])[0]/2)] @ self.H_1.T + self.R
-                        #S_k = self.H @ v.P[i] @ self.H.T + self.R
-                        #P_kpo = v.P[i] - K_SVSF[i] @ self.H @ v.P[i] - v.P[i] @ self.H.T @ K_SVSF[i].T + K_SVSF[i] @ S_k @ K_SVSF[i].T
-                        # try:
-                        #     P_kpo = v.P[i] - K@self.H@v.P[i] - v.P[i]@self.H.T@K.T + K@S_k@K.T
-                        # except:
-                        #     bk=0
+                    if True: #(np.any(np.abs(error)-self.E>=1.)):#(np.any(np.abs(sat)>=1.)):
+                        x_po = v.m[i] + K_SVSF[i] @ (z - v_residual.m[i])
                         e_kpo = z - self.H @ x_po
                         weight.append(weigh)
                         m.append(x_po)
@@ -445,8 +446,8 @@ class GmphdFilter_EKF_svsf_sg:
                         #print("using EKF")
                         global EKF_count
                         EKF_count = EKF_count+1
-        #print('svsf time: ' + str(time.time() - a) + ' sec')
-
+        print('svsf time: ' + str(time.time() - a) + ' sec')
+        #print('counter is' + str(counter))
         return GaussianMixture(weight, m, P,e)
 
     def pruning(self, v: GaussianMixture) -> GaussianMixture:

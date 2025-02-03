@@ -166,12 +166,12 @@ def non_linear_predict(v: GaussianMixture, p, F: sympy.Matrix, Q: np.ndarray,F_j
     for weight in v.w:
         w_s.append(weight * p)
     for mean in v.m:
-        F_c = F.subs([(x, mean[0]), (y, mean[1]), (xd, mean[2]), (yd, mean[3]), (w, mean[4])])
+        F_c = F.xreplace({x:mean[0],y:mean[1],xd:mean[2],yd:mean[3],w:mean[4]})
         F_c = sympy.matrix2numpy(F_c, dtype=float)
         F_c = np.hstack(F_c)
         m.append(F_c)
     for cov_matrix in v.P:
-        F_j = F_jacobian.subs([(x, v.m[index][0]), (y, v.m[index][1]), (xd, v.m[index][2]), (yd, v.m[index][3]), (w, v.m[index][4])])
+        F_j = F_jacobian.xreplace({x:v.m[index][0],y:v.m[index][1],xd:v.m[index][2],yd:v.m[index][3],w:v.m[index][4]})
         F_j = sympy.matrix2numpy(F_j, dtype=float)
         F_j = np.vstack(F_j)
         P.append(Q + F_j @ cov_matrix @ F_j.T)

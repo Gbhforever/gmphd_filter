@@ -208,12 +208,14 @@ def non_linear_predict(v: GaussianMixture, p, F: sympy.Matrix, Q: np.ndarray,F_j
     for weight in v.w:
         w_s.append(weight * p)
     for mean in v.m:
-        F_c = F.subs([(x, mean[0]), (y, mean[1]), (xd, mean[2]), (yd, mean[3]), (w, mean[4])])
+        #F_c = F.subs([(x, mean[0]), (y, mean[1]), (xd, mean[2]), (yd, mean[3]), (w, mean[4])])
+        F_c = F.xreplace({x:mean[0],y:mean[1],xd:mean[2],yd:mean[3],w:mean[4]})
         F_c = sympy.matrix2numpy(F_c, dtype=float)
         F_c = np.hstack(F_c)
         m.append(F_c)
     for cov_matrix in v.P:
-        F_j = F_jacobian.subs([(x, v.m[index][0]), (y, v.m[index][1]), (xd, v.m[index][2]), (yd, v.m[index][3]), (w, v.m[index][4])])
+        #F_j = F_jacobian.subs([(x, v.m[index][0]), (y, v.m[index][1]), (xd, v.m[index][2]), (yd, v.m[index][3]), (w, v.m[index][4])])
+        F_j = F_jacobian.xreplace({x:v.m[index][0],y:v.m[index][1],xd:v.m[index][2],yd:v.m[index][3],w:v.m[index][4]})
         F_j = sympy.matrix2numpy(F_j, dtype=float)
         F_j = np.vstack(F_j)
         P.append(Q + F_j @ cov_matrix @ F_j.T)
@@ -362,7 +364,7 @@ class GmphdFilter_EKF_svsf:
         detP = get_matrices_determinants(v_residual.P)
         invP = get_matrices_inverses(v_residual.P)
         v_residual.set_covariance_determinant_and_inverse_list(detP, invP)
-
+        counter =0
         K_EKF = []
         P_kk = []
         for i in range(len(v_residual.w)):
@@ -391,12 +393,15 @@ class GmphdFilter_EKF_svsf:
                     weigh = values[i]/normalization_factor
                 if(weigh >= self.T):
                     if (np.any(np.abs(sat)>=1.)):
+                        counter = counter+1
                         phi_12 = self.phi_12.copy()
-                        phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+                        #phi_12 = phi_12.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+                        phi_12 = phi_12.xreplace({xd: v.m[i][2], yd: v.m[i][3], w: v.m[i][4]})
                         phi_12 = sympy.matrix2numpy(phi_12, dtype=float)
                         inv_phi_12 = lin.pinv(phi_12)
                         phi_22 = self.phi_22.copy()
-                        phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+                        #phi_22 = phi_22.subs(([(xd, v.m[i][2]), (yd, v.m[i][3]), (w, v.m[i][4])]))
+                        phi_22 = phi_22.xreplace({xd: v.m[i][2], yd: v.m[i][3], w: v.m[i][4]})
                         phi_22 = sympy.matrix2numpy(phi_22, dtype=float)
 
                         t_1 = phi_22 @ inv_phi_12 @ error
@@ -435,7 +440,8 @@ class GmphdFilter_EKF_svsf:
                 else:
                     gated = gated+1
             p_gated = gated / np.shape(Z)[0] * 100
-            print("percent of Z gated:" + str(gated))
+            #print('counter is' + str(counter))
+            #print("percent of Z gated:" + str(gated))
 
             #print(' SVSF gain time: ' + str(time.time() - a) + ' sec')
         #print('svsf time: ' + str(time.time() - a) + ' sec')
@@ -524,11 +530,11 @@ class GmphdFilter_EKF_svsf:
         a = time.time()
         for z in Z:
             v = self.prediction(v)
-            #a = time.time()
+            a = time.time()
             v = self.correction(v, z)
-            #print(' SVSF correct time: ' + str(time.time() - a) + ' sec')
+            print(' SVSF correct time: ' + str(time.time() - a) + ' sec')
             v = self.pruning(v)
-            #print('number of components' + str(len(v.w)))
+            print('number of components' + str(len(v.w)))
             x = self.state_estimation(v)
             X.append(x)
         print("EKF Count:" +str(EKF_count))
