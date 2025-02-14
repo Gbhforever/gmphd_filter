@@ -862,11 +862,11 @@ class GmphdFilter_UKF:
         UKF_count = 0
         SVSF_count = 0
         for i, z in enumerate(Z):
-            print("timestep"+str(i))
+            #print("timestep"+str(i))
             v = self.birth(v)
             a = time.time()
             v = self.unscented_predict_update(v, z)
-            print('correct time: ' + str(time.time() - a) + ' sec')
+            print('UKF correct time: ' + str(time.time() - a) + ' sec')
             v = self.pruning(v)
             print('number of components' + str(len(v.w)))
             x = self.state_estimation(v)

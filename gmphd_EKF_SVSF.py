@@ -431,9 +431,11 @@ class GmphdFilter_EKF_svsf:
                         SVSF_count = SVSF_count + 1
                     else:
                         weight.append(weigh)
-                        m.append(v.m[i] + K_EKF[i] @ (z - v_residual.m[i]))
+                        #m.append(v.m[i] + K_EKF[i] @ (z - v_residual.m[i]))
+                        m.append(v.m[i] + K_EKF[i] @ (z -self.H @ v.m[i]))
                         P.append(P_kk[i].copy())
-                        e.append(z- self.H @(v.m[i] + K_EKF[i] @ (z - v_residual.m[i])))
+                        #e.append(z- self.H @(v.m[i] + K_EKF[i] @ (z - v_residual.m[i])))
+                        e.append(z - self.H @ (v.m[i] + K_EKF[i] @ (z - self.H @ v.m[i])))
                         #print("using EKF")
                         global EKF_count
                         EKF_count = EKF_count+1

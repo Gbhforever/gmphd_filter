@@ -428,7 +428,7 @@ class GmphdFilter_EKF_svsf_sg:
                 else:
                     weigh = values[i]/normalization_factor
                 if(weigh >= self.T):
-                    if True: #(np.any(np.abs(error)-self.E>=1.)):#(np.any(np.abs(sat)>=1.)):
+                    if (np.any(np.abs(error)-self.E>=1.)):#(np.any(np.abs(sat)>=1.)):
                         x_po = v.m[i] + K_SVSF[i] @ (z - v_residual.m[i])
                         e_kpo = z - self.H @ x_po
                         weight.append(weigh)
@@ -446,7 +446,7 @@ class GmphdFilter_EKF_svsf_sg:
                         #print("using EKF")
                         global EKF_count
                         EKF_count = EKF_count+1
-        print('svsf time: ' + str(time.time() - a) + ' sec')
+        #print('svsf time: ' + str(time.time() - a) + ' sec')
         #print('counter is' + str(counter))
         return GaussianMixture(weight, m, P,e)
 
