@@ -542,5 +542,5 @@ class GmphdFilter_EKF_svsf:
         print("EKF Count:" +str(EKF_count))
         print("SVSF Count:" + str(SVSF_count))
         Queue.put(X)
-        print(' SVSF filter time: ' + str(time.time() - a) + ' sec')
+        print(' EKF SVSF filter time: ' + str(time.time() - a) + ' sec')
         return X

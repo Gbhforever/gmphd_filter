@@ -632,7 +632,7 @@ if __name__ == '__main__':
     # trajectories, targets_tracks = generate_trajectories(model, targets_birth_time, targets_death_time, targets_start,
     #                                                      targets_spw_time_brttgt_vel, noise=False)
     # ==================================================================================================================
-    Monte_carlo=1000
+    Monte_carlo=1
     MSE = np.zeros((model["num_scans"],4))
     OSPA_EKF_SVSF_array = np.zeros((model_nonlinear["num_scans"],5))
     OSPA_EKF_SVSF_SG_array = np.zeros((model_nonlinear["num_scans"],5))
@@ -727,7 +727,7 @@ if __name__ == '__main__':
     df_data.to_csv("./csv/data"+time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())+"_MC:"+str(Monte_carlo)+".csv")
 
     df_traj = pd.DataFrame(trajectories)
-    df_data.to_csv("./csv/trajectories" + time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + "_MC:" + str(Monte_carlo) + ".csv")
+    df_traj.to_csv("./csv/trajectories" + time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + "_MC:" + str(Monte_carlo) + ".csv")
 
     df1 = pd.DataFrame(OSPA_EKF_SVSF_SG_array)
     df1.to_csv("./csv/OSPA_EKF_SVSF_SG"+time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())+"_MC:"+str(Monte_carlo)+".csv")

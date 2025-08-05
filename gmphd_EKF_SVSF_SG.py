@@ -529,12 +529,12 @@ class GmphdFilter_EKF_svsf_sg:
         EKF_count = 0
         SVSF_count = 0
         print("Running SVSF_SG")
-        a = time.time()
+        b = time.time()
         for z in Z:
             v = self.prediction(v)
-            #a = time.time()
+            a = time.time()
             v = self.correction(v, z)
-            #print(' SG correct time: ' + str(time.time() - a) + ' sec')
+            print(' SG correct time: ' + str(time.time() - a) + ' sec')
             v = self.pruning(v)
             #print('number of components' + str(len(v.w)))
             x = self.state_estimation(v)
@@ -542,5 +542,5 @@ class GmphdFilter_EKF_svsf_sg:
         print("EKF Count:" +str(EKF_count))
         print("SVSF Count:" + str(SVSF_count))
         Queue.put(X)
-        print(' SG filter time: ' + str(time.time() - a) + ' sec')
+        print(' SG filter time: ' + str(time.time() - b) + ' sec')
         return X

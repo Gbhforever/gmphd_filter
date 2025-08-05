@@ -378,6 +378,7 @@ class GmphdFilter_EKF:
         X = []
         v = GaussianMixture([], [], [])
         print("Running EKF")
+        a = time.time()
         for z in Z:
             v = self.prediction(v)
             a = time.time()
@@ -387,6 +388,6 @@ class GmphdFilter_EKF:
             print('number of components' + str(len(v.w)))
             x = self.state_estimation(v)
             X.append(x)
-        print("EKF Done")
+        print(' EKF filter time: ' + str(time.time() - a) + ' sec')
         Queue.put(X)
         return X

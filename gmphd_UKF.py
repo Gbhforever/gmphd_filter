@@ -861,6 +861,7 @@ class GmphdFilter_UKF:
         global SVSF_count
         UKF_count = 0
         SVSF_count = 0
+        a = time.time()
         for i, z in enumerate(Z):
             #print("timestep"+str(i))
             v = self.birth(v)
@@ -873,5 +874,6 @@ class GmphdFilter_UKF:
             X.append(x)
         print("UKF Count:" +str(UKF_count))
         print("SVSF Count:" + str(SVSF_count))
+        print(' UKF filter time: ' + str(time.time() - a) + ' sec')
         Queue.put(X)
         return X
